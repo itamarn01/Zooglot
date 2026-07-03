@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>החוזה שלכם — להקת קולות KOLOT</title>
+  <meta name="description" content="צפייה, התאמה וחתימה דיגיטלית על החוזה שלכם מול להקת קולות (KOLOT).">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#0e1b20">
+  <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .portal-wrap { max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; }
+    .portal-head { text-align: center; padding: 24px 0 8px; }
+    .portal-head .logo { height: 72px; }
+    .contract-paper {
+      background: #fff; color: #16232a; border-radius: 14px; padding: 32px clamp(18px, 5vw, 44px);
+      box-shadow: var(--shadow); line-height: 1.8;
+    }
+    .contract-paper h2, .contract-paper h3 { color: #0b2830; font-family: var(--font-head); }
+    .opt-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; background: var(--bg-soft); }
+    .opt-row input { width: auto; }
+    .price-banner {
+      position: sticky; bottom: 12px; z-index: 30;
+      background: var(--brand); color: var(--brand-ink);
+      border-radius: 12px; padding: 14px 20px; text-align: center;
+      font-family: var(--font-head); font-size: 20px; box-shadow: var(--shadow);
+    }
+    .sig-img { max-height: 70px; background: #fff; border-radius: 8px; padding: 4px 10px; }
+  </style>
+</head>
+<body>
+  <div class="portal-wrap" id="portal">
+    <div class="portal-head">
+      <img class="logo" src="/assets/logo.svg" alt="KOLOT — להקת קולות">
+      <p class="muted">טוען את החוזה…</p>
+    </div>
+  </div>
+  <div id="toasts" aria-live="polite"></div>
+  <script type="module" src="/js/portal.js"></script>
+</body>
+</html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>השאירו פרטים — להקת קולות KOLOT</title>
+  <meta name="description" content="טופס יצירת קשר עם להקת קולות (KOLOT) — להקת אירועים וחתונות.">
+  <meta name="theme-color" content="#0e1b20">
+  <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: 'Assistant', Arial, sans-serif; min-height: 100vh;
+      background: var(--f-bg, #0e1b20); color: var(--f-text, #eef7fa);
+      display: flex; align-items: flex-start; justify-content: center; padding: 24px 14px;
+    }
+    .form-card { width: 100%; max-width: 480px; }
+    .form-card .logo { max-height: 80px; display: block; margin: 0 auto 10px; }
+    h1 { font-size: 22px; text-align: center; color: var(--f-primary, #87cedf); }
+    .intro { text-align: center; opacity: .85; font-size: 14.5px; }
+    label { display: block; margin: 14px 0 4px; font-size: 14px; opacity: .9; }
+    label .req { color: var(--f-primary, #87cedf); }
+    input, select, textarea {
+      width: 100%; font-family: inherit; font-size: 15px; color: inherit;
+      background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18);
+      border-radius: 10px; padding: 10px 12px;
+    }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--f-primary, #87cedf); }
+    select option { color: #16232a; }
+    button[type=submit] {
+      width: 100%; margin-top: 20px; padding: 13px; font-family: inherit; font-size: 16px; font-weight: 700;
+      background: var(--f-primary, #87cedf); color: #0b2830; border: none; border-radius: 12px; cursor: pointer;
+    }
+    button[type=submit]:hover { filter: brightness(1.08); }
+    .done { text-align: center; padding: 40px 10px; font-size: 18px; }
+  </style>
+</head>
+<body>
+  <div class="form-card" id="form-root"><p style="text-align:center;opacity:.7">טוען…</p></div>
+  <script type="module" src="/js/form.js"></script>
+</body>
+</html>
