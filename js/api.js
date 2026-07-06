@@ -1,5 +1,8 @@
 // Thin API client — token persisted in localStorage, JSON in/out.
 const TOKEN_KEY = 'zooglot_token';
+const API_BASE = (typeof process !== 'undefined' && process.env?.REACT_APP_API_BASE) ||
+                 (typeof window !== 'undefined' && window.__API_BASE__) ||
+                 '';
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (t) => t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY);
@@ -10,7 +13,7 @@ export async function api(path, { method = 'GET', body, formData } = {}) {
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
 
-  const rsp = await fetch(`/api${path}`, {
+  const rsp = await fetch(`${API_BASE}/api${path}`, {
     method, headers,
     body: formData ? formData : body !== undefined ? JSON.stringify(body) : undefined,
   });

@@ -1,0 +1,37 @@
+{
+  "buildCommand": "echo 'No build step needed for static HTML+JS'",
+  "public": ".",
+  "cleanUrls": true,
+  "headers": [
+    {
+      "source": "/index.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=3600" }
+      ]
+    },
+    {
+      "source": "/portal.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=3600" }
+      ]
+    },
+    {
+      "source": "/form.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=3600" }
+      ]
+    },
+    {
+      "source": "/api/*",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache" }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/((?!api|assets|css|js|portal\\.html|form\\.html|favicon).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
