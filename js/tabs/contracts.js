@@ -2,7 +2,7 @@
 // RTL rich-text editor with {{variable}} injection + custom fields,
 // management signature, and sending to the client portal.
 import { get, post, patch, del } from '../api.js';
-import { h, toast, modal, confirmModal, fmtMoney, fmtDate } from '../ui.js';
+import { h, toast, modal, confirmModal, fmtMoney, fmtDate, skeletonTable, withBusy } from '../ui.js';
 
 const STATUS_LABELS = {
   draft: ['טיוטה', 'stage'], sent: ['נשלח ללקוח', 'stage-form'],
@@ -20,6 +20,7 @@ const LEAD_VARS = [
 export async function renderContractsTab(view) {
   const host = h('div', {});
   view.append(host);
+  host.append(skeletonTable(6));
   let contracts = [], leads = [], packages = [], signatures = [];
 
   async function reload() {
@@ -205,13 +206,13 @@ export async function renderContractsTab(view) {
         h('div', { class: 'flex', style: 'flex-wrap:wrap' },
           h('span', {}, '📧 שליחה ללקוח:'), sendEmail,
           h('button', {
-            class: 'btn primary', onclick: async () => {
+            class: 'btn primary', onclick: withBusy(async () => {
               await saveAll();
               const rsp = await post(`/contracts/${c.id}/send`, { email: sendEmail.value || undefined });
               navigator.clipboard?.writeText(rsp.portal_link);
               toast(`החוזה נשלח ✓ הקישור הועתק: ${rsp.portal_link}`, 'success');
               reload();
-            },
+            }),
           }, 'שליחה ללקוח'),
           h('a', { class: 'btn', href: `/portal.html?t=${c.client_token}`, target: '_blank' }, '👁️ תצוגה מקדימה')))), {
       wide: true,

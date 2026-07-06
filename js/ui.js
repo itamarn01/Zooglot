@@ -28,22 +28,94 @@ export function toast(msg, type = 'info') {
 export function modal(title, contentEl, { wide = false, actions = [] } = {}) {
   const backdrop = h('div', { class: 'modal-backdrop' });
   const close = () => backdrop.remove();
+  const actionBtns = actions.map(a => {
+    const b = h('button', { class: `btn ${a.kind || ''}` }, a.label);
+    // Auto spinner + double-click guard for every modal action.
+    b.addEventListener('click', async () => {
+      if (b.classList.contains('loading')) return;
+      b.classList.add('loading');
+      try { await a.onclick(close); } finally { b.classList.remove('loading'); }
+    });
+    return b;
+  });
   const box = h('div', { class: `modal${wide ? ' wide' : ''}` },
     h('div', { class: 'flex between' },
       h('h3', {}, title),
       h('button', { class: 'icon-btn', onclick: close, 'aria-label': 'סגור' }, '✕')),
     contentEl,
-    actions.length ? h('div', { class: 'modal-actions' },
-      ...actions.map(a => h('button', {
-        class: `btn ${a.kind || ''}`,
-        onclick: async () => { if (await a.onclick(close) !== false) { /* action decides close */ } },
-      }, a.label))) : null,
+    actionBtns.length ? h('div', { class: 'modal-actions' }, ...actionBtns) : null,
   );
   backdrop.append(box);
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
   document.body.append(backdrop);
   return { close, box };
 }
+
+// Wrap an async click handler so the button shows a spinner and can't be
+// double-clicked while the promise is pending. Usage: onclick: withBusy(async (e) => {...})
+export function withBusy(handler) {
+  return async function (e) {
+    const btn = e.currentTarget;
+    if (btn.classList.contains('loading')) return;
+    btn.classList.add('loading');
+    try { return await handler.call(this, e); }
+    finally { btn.classList.remove('loading'); }
+  };
+}
+
+// Password input wrapped with a show/hide eye toggle. Returns { wrap, input }.
+export function passwordField(attrs = {}) {
+  const input = h('input', { type: 'password', dir: 'ltr', ...attrs });
+  const eye = h('button', { type: 'button', class: 'pw-eye', 'aria-label': 'הצג/הסתר סיסמה', tabindex: -1, html: EYE_CLOSED });
+  eye.addEventListener('click', () => {
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    eye.innerHTML = show ? EYE_OPEN : EYE_CLOSED;
+  });
+  const wrap = h('div', { class: 'pw-wrap' }, input, eye);
+  return { wrap, input };
+}
+
+// ---- skeleton builders ----
+export const sk = (cls = 'sk-line', style = '') => h('div', { class: `skeleton ${cls}`, style });
+export function skeletonToolbar() { return h('div', { class: 'skeleton sk-toolbar' }); }
+export function skeletonTable(rows = 8) {
+  return h('div', {}, skeletonToolbar(),
+    h('div', {}, ...Array.from({ length: rows }, () => sk('sk-row'))));
+}
+export function skeletonCards(n = 4) {
+  return h('div', { class: 'grid-2' }, ...Array.from({ length: n }, () => sk('sk-card')));
+}
+
+// ---- animated splash screen ----
+export function showSplash(subtitle = 'CRM · להקת קולות') {
+  if (document.getElementById('splash')) return;
+  const el = h('div', { id: 'splash' },
+    h('img', { class: 'splash-logo', src: '/assets/logo.svg', alt: 'KOLOT' }),
+    h('div', { class: 'splash-name' }, 'Zooglot.DB'),
+    h('div', { class: 'splash-sub' }, subtitle),
+    h('div', { class: 'splash-bar' }, h('i', {})));
+  document.body.append(el);
+  el.addEventListener('animationend', (e) => { if (e.animationName === 'splashOut') el.remove(); });
+  // safety net in case the animationend never fires
+  setTimeout(() => el.remove(), 2200);
+}
+
+// ---- inline SVG icons (KOLOT geometric style) ----
+const svg = (paths) => `<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+export const ICONS = {
+  leads: svg('<path d="M4 20v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1"/><circle cx="10" cy="7" r="3.2"/><path d="M17 11l2 2 3-3.5"/>'),
+  products: svg('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'),
+  packages: svg('<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/>'),
+  contracts: svg('<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h6"/>'),
+  dashboard: svg('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
+  settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H3a2 2 0 0 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>'),
+  signout: svg('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>'),
+  eyeOpen: svg('<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+  eyeClosed: svg('<path d="M2 12s3.5-7 10-7c2 0 3.7.6 5.2 1.5M22 12s-3.5 7-10 7c-2 0-3.7-.6-5.2-1.5"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M4 4l16 16"/>'),
+};
+const EYE_OPEN = ICONS.eyeOpen;
+const EYE_CLOSED = ICONS.eyeClosed;
 
 export function confirmModal(title, text) {
   return new Promise((resolve) => {

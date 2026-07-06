@@ -2,7 +2,9 @@
 // search/filter/sort, pipelines (open/win/lost), merge, contacts, updates
 // thread, voice-note AI capture and Google Calendar sync.
 import { get, post, patch, del, upload } from '../api.js';
-import { h, toast, modal, confirmModal, debounce, fmtMoney, fmtDate } from '../ui.js';
+import { h, toast, modal, confirmModal, debounce, fmtMoney, fmtDate, skeletonTable, withBusy } from '../ui.js';
+
+const PAGE_SIZE = 100;
 
 const RELATIONS = ['כלה', 'חתן', 'הורה', 'מפיק/ה', 'אחר'];
 const STAGES = ['לקוח חדש ידני', 'לקוח משאלון'];
@@ -17,10 +19,17 @@ export async function renderLeadsTab(view, state) {
   ctx = {
     view, state, leads: [], competitors: [],
     pipeline: 'open', search: '', sort: { col: 'event_date', asc: true }, filters: {},
+    limit: PAGE_SIZE,
   };
+  const skel = h('div', {}, skeletonTable(10));
+  view.append(skel);
   await reload(false);
+  skel.remove();
   draw();
 }
+
+// reset pagination whenever the visible set changes (pipeline/search/filter/sort)
+function resetPaging() { ctx.limit = PAGE_SIZE; }
 
 async function reload(redraw = true) {
   const [{ leads }, { competitors }] = await Promise.all([
@@ -105,7 +114,7 @@ function draw() {
 
   const searchInput = h('input', {
     type: 'search', placeholder: '🔍 חיפוש בכל השדות…', value: ctx.search,
-    oninput: debounce((e) => { ctx.search = e.target.value; draw(); }, 250),
+    oninput: debounce((e) => { ctx.search = e.target.value; resetPaging(); draw(); }, 250),
   });
 
   const toolbar = h('div', { class: 'board-toolbar' },
@@ -123,17 +132,37 @@ function draw() {
   );
 
   const rows = visibleLeads();
-  host.append(toolbar,
-    rows.length
-      ? h('div', { class: 'table-wrap' }, buildTable(rows))
-      : h('div', { class: 'empty-state' }, h('div', { class: 'big' }, '🎷'), h('p', {}, 'אין לידים בתצוגה הזו')));
+  const shown = rows.slice(0, ctx.limit);
+  host.append(toolbar);
+
+  if (!rows.length) {
+    host.append(h('div', { class: 'empty-state' }, h('div', { class: 'big' }, '🎷'), h('p', {}, 'אין לידים בתצוגה הזו')));
+    return;
+  }
+
+  host.append(h('div', { class: 'table-wrap' }, buildTable(shown)));
+
+  // infinite scroll: reveal 100 more rows as the sentinel comes into view
+  if (rows.length > shown.length) {
+    const remaining = rows.length - shown.length;
+    const sentinel = h('div', {
+      class: 'muted', style: 'text-align:center;padding:16px',
+    }, `מציג ${shown.length} מתוך ${rows.length} — גללו לטעינת ${Math.min(PAGE_SIZE, remaining)} נוספים…`);
+    host.append(sentinel);
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) { io.disconnect(); ctx.limit += PAGE_SIZE; draw(); }
+    }, { rootMargin: '400px' });
+    io.observe(sentinel);
+  } else if (rows.length > PAGE_SIZE) {
+    host.append(h('div', { class: 'muted', style: 'text-align:center;padding:12px' }, `סה"כ ${rows.length} לידים`));
+  }
 }
 
 function pipeBtn(status, label) {
   return h('button', {
     class: ctx.pipeline === status ? 'active' : '',
     dataset: { status },
-    onclick: () => { ctx.pipeline = status; draw(); },
+    onclick: () => { ctx.pipeline = status; resetPaging(); draw(); },
   }, label);
 }
 
@@ -156,8 +185,8 @@ function filterControl() {
         }));
       modal('סינון מתקדם', body, {
         actions: [
-          { label: 'החל סינון', kind: 'primary', onclick: (close) => { close(); draw(); } },
-          { label: 'נקה הכל', onclick: (close) => { ctx.filters = {}; close(); draw(); } },
+          { label: 'החל סינון', kind: 'primary', onclick: (close) => { close(); resetPaging(); draw(); } },
+          { label: 'נקה הכל', onclick: (close) => { ctx.filters = {}; close(); resetPaging(); draw(); } },
         ],
       });
     },
@@ -173,6 +202,7 @@ function buildTable(rows) {
       onclick: () => {
         if (ctx.sort.col === c.key) ctx.sort.asc = !ctx.sort.asc;
         else ctx.sort = { col: c.key, asc: true };
+        resetPaging();
         draw();
       },
     }, c.label, ctx.sort.col === c.key ? h('span', { class: 'sort-arrow' }, ctx.sort.asc ? ' ▲' : ' ▼') : '')),
@@ -377,7 +407,7 @@ function openContactsModal(lead) {
       h('label', { class: 'field' }, name), h('label', { class: 'field' }, role),
       h('label', { class: 'field' }, phone), h('label', { class: 'field' }, email)),
     h('button', {
-      class: 'btn primary', onclick: async () => {
+      class: 'btn primary', onclick: withBusy(async () => {
         if (!name.value.trim()) { toast('שם איש קשר חובה', 'error'); return; }
         const { contact } = await post(`/leads/${lead.id}/contacts`, {
           name: name.value, role: role.value, phone: phone.value, email: email.value,
@@ -386,7 +416,7 @@ function openContactsModal(lead) {
         name.value = role.value = phone.value = email.value = '';
         renderList();
         draw();
-      },
+      }),
     }, '+ הוספה')));
 }
 
@@ -414,14 +444,14 @@ async function openUpdatesDrawer(lead) {
     bodyEl,
     h('footer', {}, h('div', { class: 'flex' }, ta,
       h('button', {
-        class: 'btn primary', onclick: async () => {
+        class: 'btn primary', onclick: withBusy(async () => {
           if (!ta.value.trim()) return;
           await post(`/leads/${lead.id}/updates`, { body: ta.value });
           ta.value = '';
           const { updates: fresh } = await get(`/leads/${lead.id}/updates`);
           renderUpdates(fresh);
           lead.updates_count = fresh.length;
-        },
+        }),
       }, 'שליחה'))));
   document.body.append(backdrop, drawer);
 }

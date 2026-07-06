@@ -1,7 +1,7 @@
 // Auth screens: password login, OTP (magic code), invite registration,
 // forgot/reset password, email verification.
 import { post, setToken } from './api.js';
-import { h, toast } from './ui.js';
+import { h, toast, passwordField } from './ui.js';
 
 const logoHead = (subtitle) => [
   h('img', { class: 'logo', src: '/assets/logo.svg', alt: 'KOLOT — להקת קולות' }),
@@ -26,22 +26,26 @@ export function renderAuth(onLogin) {
 
 function renderLogin(onLogin) {
   const email = h('input', { type: 'email', autocomplete: 'email', required: true, dir: 'ltr' });
-  const password = h('input', { type: 'password', autocomplete: 'current-password', required: true, dir: 'ltr' });
+  const pf = passwordField({ autocomplete: 'current-password', required: true });
+  const password = pf.input;
+  const submitBtn = h('button', { class: 'btn primary', type: 'submit', style: 'width:100%' }, 'התחברות');
   const form = h('form', {},
     field('אימייל', email),
-    field('סיסמה', password),
-    h('button', { class: 'btn primary', type: 'submit', style: 'width:100%' }, 'התחברות'),
+    field('סיסמה', pf.wrap),
+    submitBtn,
     h('div', { class: 'auth-links' },
       h('a', { href: '#', onclick: (e) => { e.preventDefault(); renderForgot(onLogin); } }, 'שכחתי סיסמה'),
       h('a', { href: '#', onclick: (e) => { e.preventDefault(); renderOtp(onLogin); } }, 'התחברות עם קוד למייל')),
   );
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (submitBtn.classList.contains('loading')) return;
+    submitBtn.classList.add('loading');
     try {
       const { token, user } = await post('/auth/login', { email: email.value, password: password.value });
       setToken(token);
       onLogin(user);
-    } catch (err) { toast(err.message, 'error'); }
+    } catch (err) { toast(err.message, 'error'); submitBtn.classList.remove('loading'); }
   });
   screen(...logoHead('מערכת ניהול הלקוחות של להקת קולות'), form,
     h('p', { class: 'muted', style: 'margin-top:16px' }, 'הצטרפות למערכת בהזמנה בלבד — פנו למנהל המערכת.'));
@@ -91,9 +95,10 @@ function renderForgot(onLogin) {
 }
 
 function renderReset(token, emailAddr, onLogin) {
-  const password = h('input', { type: 'password', required: true, dir: 'ltr', minlength: 8 });
+  const pf = passwordField({ required: true, minlength: 8 });
+  const password = pf.input;
   const form = h('form', {},
-    field(`סיסמה חדשה עבור ${emailAddr || ''}`, password),
+    field(`סיסמה חדשה עבור ${emailAddr || ''}`, pf.wrap),
     h('button', { class: 'btn primary', type: 'submit', style: 'width:100%' }, 'עדכון סיסמה'));
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -109,10 +114,11 @@ function renderReset(token, emailAddr, onLogin) {
 
 function renderRegister(inviteToken, onLogin) {
   const name = h('input', { type: 'text', required: true, autocomplete: 'name' });
-  const password = h('input', { type: 'password', required: true, minlength: 8, dir: 'ltr', autocomplete: 'new-password' });
+  const pf = passwordField({ required: true, minlength: 8, autocomplete: 'new-password' });
+  const password = pf.input;
   const form = h('form', {},
     field('שם מלא', name),
-    field('סיסמה (8 תווים לפחות)', password),
+    field('סיסמה (8 תווים לפחות)', pf.wrap),
     h('button', { class: 'btn primary', type: 'submit', style: 'width:100%' }, 'יצירת חשבון'));
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

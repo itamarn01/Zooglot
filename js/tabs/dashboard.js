@@ -1,11 +1,14 @@
 // Tab 5 — דשבורד: high-level CRM metrics, conversion, per-user sales,
 // monthly trend, sources & lost reasons — rendered with lightweight CSS bars.
 import { get } from '../api.js';
-import { h, fmtMoney } from '../ui.js';
+import { h, fmtMoney, skeletonCards } from '../ui.js';
 
 export async function renderDashboardTab(view) {
+  const skel = h('div', {}, h('h2', {}, 'דשבורד אנליטיקה'), skeletonCards(4), h('div', { class: 'mt' }, skeletonCards(2)));
+  view.append(skel);
   const data = await get('/dashboard');
   const t = data.totals;
+  skel.remove();
 
   const tile = (num, lbl, color) => h('div', { class: 'card stat-tile' },
     h('div', { class: 'num', style: color ? `color:${color}` : '' }, num),

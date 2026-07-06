@@ -1,23 +1,28 @@
 // Tab 6 — הגדרות: profile, integrations (Google Calendar, webhook),
 // management signatures (draw/upload), team invitations, form builder.
-import { get, post, patch, del } from '../api.js';
-import { h, toast, modal, confirmModal, signaturePad, fileToDataUrl, initialsAvatar } from '../ui.js';
+import { get, post, patch, del, setToken } from '../api.js';
+import { h, toast, modal, confirmModal, signaturePad, fileToDataUrl, initialsAvatar, passwordField, withBusy, skeletonCards, ICONS } from '../ui.js';
 
 export async function renderSettingsTab(view, state) {
+  view.append(h('h2', {}, 'הגדרות'));
+  const skel = h('div', {}, skeletonCards(4));
+  view.append(skel);
+
   const [{ signatures }, integrations, { forms }, bindable] = await Promise.all([
     get('/settings/signatures'), get('/settings/integrations'), get('/forms'), get('/forms/bindable-fields'),
   ]);
   let calStatus = { configured: false, connected: false };
   try { calStatus = await get('/calendar/status'); } catch { /* not critical */ }
 
-  view.append(h('h2', {}, 'הגדרות'));
+  skel.remove();
   const grid = h('div', { class: 'grid-2', style: 'align-items:start' });
   view.append(grid);
 
   // ================= profile =================
   const nameInput = h('input', { type: 'text', value: state.user.full_name || '' });
-  const curPass = h('input', { type: 'password', dir: 'ltr', autocomplete: 'current-password' });
-  const newPass = h('input', { type: 'password', dir: 'ltr', autocomplete: 'new-password', minlength: 8 });
+  const curPassF = passwordField({ autocomplete: 'current-password' });
+  const newPassF = passwordField({ autocomplete: 'new-password', minlength: 8 });
+  const curPass = curPassF.input, newPass = newPassF.input;
   const avatarFile = h('input', { type: 'file', accept: 'image/*' });
   const avatarPreview = h('div', {}, initialsAvatar(state.user.full_name, state.user.avatar_url));
   let avatarData;
@@ -34,19 +39,20 @@ export async function renderSettingsTab(view, state) {
     h('div', { class: 'flex' }, avatarPreview, avatarFile),
     h('label', { class: 'field mt' }, h('span', {}, 'שם מלא'), nameInput),
     h('div', { class: 'grid-2' },
-      h('label', { class: 'field' }, h('span', {}, 'סיסמה נוכחית'), curPass),
-      h('label', { class: 'field' }, h('span', {}, 'סיסמה חדשה (אופציונלי)'), newPass)),
+      h('label', { class: 'field' }, h('span', {}, 'סיסמה נוכחית'), curPassF.wrap),
+      h('label', { class: 'field' }, h('span', {}, 'סיסמה חדשה (אופציונלי)'), newPassF.wrap)),
     h('button', {
-      class: 'btn primary', onclick: async () => {
+      class: 'btn primary', onclick: withBusy(async () => {
         try {
           const body = { full_name: nameInput.value };
           if (avatarData) body.avatar_url = avatarData;
           if (newPass.value) { body.new_password = newPass.value; body.current_password = curPass.value; }
           const { user } = await patch('/settings/profile', body);
           Object.assign(state.user, user);
+          curPass.value = newPass.value = '';
           toast('הפרופיל עודכן ✓', 'success');
         } catch (e) { toast(e.message, 'error'); }
-      },
+      }),
     }, '💾 שמירת פרופיל')));
 
   // ================= integrations =================
@@ -159,14 +165,14 @@ export async function renderSettingsTab(view, state) {
       h('h4', { class: 'mt' }, 'הזמנת איש צוות (בהזמנה בלבד)'),
       h('div', { class: 'flex' }, invEmail,
         h('button', {
-          class: 'btn primary', onclick: async () => {
+          class: 'btn primary', onclick: withBusy(async () => {
             try {
               const { link } = await post('/settings/invitations', { email: invEmail.value });
               navigator.clipboard?.writeText(link);
               toast('ההזמנה נשלחה במייל והקישור הועתק ✓', 'success');
               invEmail.value = '';
             } catch (e) { toast(e.message, 'error'); }
-          },
+          }),
         }, 'שליחת הזמנה')));
   } else {
     teamCard.append(h('p', { class: 'muted' }, 'הזמנת אנשי צוות חדשים זמינה לאדמין בלבד.'));
@@ -175,6 +181,17 @@ export async function renderSettingsTab(view, state) {
 
   // ================= form builder =================
   view.append(formBuilderSection(forms, bindable.fields));
+
+  // ================= sign out =================
+  view.append(h('div', { class: 'card mt', style: 'text-align:center' },
+    h('p', { class: 'muted' }, `מחובר/ת כ-${state.user.email}`),
+    h('button', {
+      class: 'btn danger', onclick: () => {
+        setToken(null);
+        location.hash = '';
+        location.reload();
+      },
+    }, h('span', { class: 'tab-ico', style: 'width:16px;height:16px', html: ICONS.signout }), 'התנתקות')));
 }
 
 // ---------------- form builder ----------------

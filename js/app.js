@@ -1,6 +1,6 @@
 // Zooglot.DB — SPA bootstrap and tab router.
 import { get, getToken, setToken } from './api.js';
-import { h, initialsAvatar, toast } from './ui.js';
+import { h, initialsAvatar, toast, showSplash, ICONS } from './ui.js';
 import { renderAuth, verifyBanner } from './auth.js';
 import { renderLeadsTab } from './tabs/leads.js';
 import { renderProductsTab } from './tabs/products.js';
@@ -9,20 +9,22 @@ import { renderContractsTab } from './tabs/contracts.js';
 import { renderDashboardTab } from './tabs/dashboard.js';
 import { renderSettingsTab } from './tabs/settings.js';
 
+// Main navigation tabs (settings lives in the user chip, not the bar).
 const TABS = [
-  { id: 'leads', label: 'מעקב זוגות', render: renderLeadsTab },
-  { id: 'products', label: 'מוצרים', render: renderProductsTab },
-  { id: 'packages', label: 'חבילות', render: renderPackagesTab },
-  { id: 'contracts', label: 'חוזים', render: renderContractsTab },
-  { id: 'dashboard', label: 'דשבורד', render: renderDashboardTab },
-  { id: 'settings', label: 'הגדרות', render: renderSettingsTab },
+  { id: 'leads', label: 'מעקב זוגות', icon: ICONS.leads, render: renderLeadsTab },
+  { id: 'products', label: 'מוצרים', icon: ICONS.products, render: renderProductsTab },
+  { id: 'packages', label: 'חבילות', icon: ICONS.packages, render: renderPackagesTab },
+  { id: 'contracts', label: 'חוזים', icon: ICONS.contracts, render: renderContractsTab },
+  { id: 'dashboard', label: 'דשבורד', icon: ICONS.dashboard, render: renderDashboardTab },
 ];
+const SETTINGS_TAB = { id: 'settings', label: 'הגדרות', render: renderSettingsTab };
+const ALL_TABS = [...TABS, SETTINGS_TAB];
 
 export const state = { user: null, team: [] };
 
 function currentTab() {
   const hash = new URLSearchParams(location.hash.slice(1));
-  return TABS.find(t => t.id === hash.get('tab')) || TABS[0];
+  return ALL_TABS.find(t => t.id === hash.get('tab')) || TABS[0];
 }
 
 export function gotoTab(id, extra = {}) {
@@ -40,23 +42,20 @@ async function renderApp() {
       class: t.id === tab.id ? 'active' : '', role: 'tab',
       'aria-selected': t.id === tab.id ? 'true' : 'false',
       onclick: () => gotoTab(t.id),
-    }, t.label)));
+    }, t.icon ? h('span', { class: 'tab-ico', html: t.icon }) : null, t.label)));
 
   const topbar = h('header', { class: 'topbar' },
     h('img', { class: 'logo', src: '/assets/logo.svg', alt: 'KOLOT' }),
     h('span', { class: 'app-name' }, 'Zooglot.DB'),
-    h('span', { class: 'muted', style: 'font-size:12px' }, 'CRM · להקת קולות'),
+    h('span', { class: 'muted brand-sub', style: 'font-size:12px' }, 'CRM · להקת קולות'),
     h('span', { class: 'spacer' }),
     h('div', {
-      class: 'user-chip', title: 'התנתקות', onclick: () => {
-        setToken(null);
-        location.hash = '';
-        location.reload();
-      },
+      class: `user-chip${tab.id === 'settings' ? ' active' : ''}`, title: 'הגדרות',
+      onclick: () => gotoTab('settings'),
     },
       initialsAvatar(state.user.full_name, state.user.avatar_url),
       h('span', {}, state.user.full_name || state.user.email),
-      h('span', { class: 'muted' }, '⏻')));
+      h('span', { class: 'tab-ico', style: 'width:16px;height:16px', html: ICONS.settings })));
 
   const view = h('main', { id: 'view' });
   app.append(topbar, nav, view);
@@ -72,12 +71,21 @@ async function renderApp() {
   }
 }
 
+// After a successful login: play the splash, then enter the app.
+async function enterApp(user) {
+  state.user = user;
+  showSplash(`שלום, ${(user.full_name || '').split(' ')[0] || 'ברוך הבא'} 👋`);
+  await loadTeam();
+  renderApp();
+}
+
 async function boot() {
   const hash = new URLSearchParams(location.hash.slice(1));
   if (!getToken() || hash.get('invite') || hash.get('reset')) {
-    renderAuth(async (user) => { state.user = user; await loadTeam(); renderApp(); });
+    renderAuth(enterApp);
     return;
   }
+  showSplash();
   try {
     const { user } = await get('/auth/me');
     state.user = user;
@@ -85,7 +93,7 @@ async function boot() {
     renderApp();
   } catch {
     setToken(null);
-    renderAuth(async (user) => { state.user = user; await loadTeam(); renderApp(); });
+    renderAuth(enterApp);
   }
 }
 

@@ -1,10 +1,11 @@
 // Tab 2 — מוצרים: full CRUD with inline editing and default pricing.
 import { get, post, patch, del } from '../api.js';
-import { h, toast, modal, confirmModal, fmtMoney } from '../ui.js';
+import { h, toast, modal, confirmModal, fmtMoney, skeletonTable } from '../ui.js';
 
 export async function renderProductsTab(view) {
   const host = h('div', {});
   view.append(host);
+  host.append(skeletonTable(6));
   let products = [];
 
   async function reload() {
