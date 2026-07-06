@@ -1,6 +1,5 @@
 {
   "buildCommand": "echo 'No build step needed for static HTML+JS'",
-  "public": ".",
   "cleanUrls": true,
   "headers": [
     {
