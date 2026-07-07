@@ -2,23 +2,24 @@
 import { get, getToken, setToken } from './api.js';
 import { h, initialsAvatar, toast, showSplash, ICONS } from './ui.js';
 import { renderAuth, verifyBanner } from './auth.js';
-import { renderLeadsTab } from './tabs/leads.js';
+import { renderLeadsTab, openVoiceModal } from './tabs/leads.js';
 import { renderProductsTab } from './tabs/products.js';
 import { renderPackagesTab } from './tabs/packages.js';
 import { renderContractsTab } from './tabs/contracts.js';
 import { renderDashboardTab } from './tabs/dashboard.js';
 import { renderSettingsTab } from './tabs/settings.js';
 
-// Main navigation tabs (settings lives in the user chip, not the bar).
+// Main navigation tabs — shown in the top bar (desktop) and bottom bar (mobile).
+// Dashboard and settings are reached from the user chip / settings page instead.
 const TABS = [
   { id: 'leads', label: 'מעקב זוגות', icon: ICONS.leads, render: renderLeadsTab },
   { id: 'products', label: 'מוצרים', icon: ICONS.products, render: renderProductsTab },
   { id: 'packages', label: 'חבילות', icon: ICONS.packages, render: renderPackagesTab },
   { id: 'contracts', label: 'חוזים', icon: ICONS.contracts, render: renderContractsTab },
-  { id: 'dashboard', label: 'דשבורד', icon: ICONS.dashboard, render: renderDashboardTab },
 ];
+const DASHBOARD_TAB = { id: 'dashboard', label: 'דשבורד', render: renderDashboardTab };
 const SETTINGS_TAB = { id: 'settings', label: 'הגדרות', render: renderSettingsTab };
-const ALL_TABS = [...TABS, SETTINGS_TAB];
+const ALL_TABS = [...TABS, DASHBOARD_TAB, SETTINGS_TAB];
 
 export const state = { user: null, team: [] };
 
@@ -30,6 +31,13 @@ function currentTab() {
 export function gotoTab(id, extra = {}) {
   const p = new URLSearchParams({ tab: id, ...extra });
   location.hash = p.toString();
+}
+
+function bottomTabBtn(t, activeTab) {
+  return h('button', {
+    class: t.id === activeTab.id ? 'active' : '',
+    onclick: () => gotoTab(t.id),
+  }, h('span', { class: 'tab-ico', html: t.icon }), h('span', { class: 'bt-label' }, t.label));
 }
 
 async function renderApp() {
@@ -57,8 +65,16 @@ async function renderApp() {
       h('span', {}, state.user.full_name || state.user.email),
       h('span', { class: 'tab-ico', style: 'width:16px;height:16px', html: ICONS.settings })));
 
+  // app-style bottom bar for mobile (CSS hides it on desktop) — same tabs
+  // as the top nav, plus a raised center FAB for voice-lead capture from anywhere
+  const bottomNav = h('nav', { class: 'bottom-tabs', role: 'tablist' },
+    ...TABS.slice(0, 2).map(t => bottomTabBtn(t, tab)),
+    h('button', { class: 'fab', title: 'ליד חדש מהקלטה', onclick: () => openVoiceModal() },
+      h('span', { class: 'tab-ico', html: ICONS.mic }), h('span', { class: 'bt-label' }, 'הקלטה')),
+    ...TABS.slice(2).map(t => bottomTabBtn(t, tab)));
+
   const view = h('main', { id: 'view' });
-  app.append(topbar, nav, view);
+  app.append(topbar, nav, bottomNav, view);
 
   const banner = verifyBanner(state.user, (u) => { state.user = u; renderApp(); });
   if (banner) view.append(banner);

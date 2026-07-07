@@ -1,6 +1,6 @@
-// Tab 3 — חבילות: add products into "included" / "optional" zones either by
-// dragging or with an explicit picker (works on touch too), with per-package
-// price overrides for optional items.
+// Tab 3 — חבילות: add products into "included" / "optional" zones via a
+// simple picker (no drag & drop), with per-package price overrides for
+// optional items.
 import { get, post, patch, del } from '../api.js';
 import { h, toast, modal, confirmModal, fmtMoney, skeletonCards } from '../ui.js';
 
@@ -31,26 +31,20 @@ export async function renderPackagesTab(view) {
 
   const activeProducts = () => products.filter(p => p.active);
 
-  // ---- side panel: draggable product list ----
+  // ---- side panel: reference list of available products ----
   function productsPanel() {
     const items = activeProducts();
     return h('div', { class: 'card products-panel' },
       h('h3', {}, '🎸 מוצרים'),
-      h('p', { class: 'muted' }, 'גררו מוצר לאזור בחבילה, או השתמשו בכפתור "➕ הוספת מוצר" בכל אזור.'),
+      h('p', { class: 'muted' }, 'השתמשו בכפתור "➕ הוספת מוצר" בכל אזור בחבילה כדי לצרף מוצר.'),
       items.length ? items.map(p =>
-        h('div', {
-          class: 'dnd-product', draggable: true,
-          ondragstart: (e) => {
-            e.dataTransfer.setData('text/plain', p.id);
-            e.dataTransfer.effectAllowed = 'copy';
-          },
-        },
-          h('span', {}, `⠿ ${p.name}`),
+        h('div', { class: 'dnd-product' },
+          h('span', {}, p.name),
           h('span', { class: 'muted' }, fmtMoney(p.default_price))))
         : h('p', { class: 'muted' }, 'אין מוצרים פעילים — הוסיפו בטאב "מוצרים".'));
   }
 
-  // ---- package card with two dropzones ----
+  // ---- package card with two "zones" ----
   function pkgCard(pkg) {
     const included = pkg.items.filter(i => i.included);
     const optional = pkg.items.filter(i => !i.included);
@@ -76,8 +70,8 @@ export async function renderPackagesTab(view) {
             },
           }, '🗑️'))),
       h('div', { class: 'grid-2' },
-        dropzone(pkg, true, `✅ כלול במחיר (${fmtMoney(pkg.base_price)})`, included),
-        dropzone(pkg, false, '➕ תוספות אופציונליות (הלקוח בוחר בחוזה)', optional)));
+        zone(pkg, true, `✅ כלול במחיר (${fmtMoney(pkg.base_price)})`, included),
+        zone(pkg, false, '➕ תוספות אופציונליות (הלקוח בוחר בחוזה)', optional)));
   }
 
   async function addProduct(pkg, productId, included) {
@@ -93,7 +87,6 @@ export async function renderPackagesTab(view) {
     } catch (err) { toast(err.message, 'error'); }
   }
 
-  // picker for adding a product without dragging (touch-friendly)
   function openProductPicker(pkg, included) {
     const inZone = new Set(pkg.items.filter(i => i.included === included).map(i => i.product_id));
     const available = activeProducts().filter(p => !inZone.has(p.id));
@@ -112,31 +105,17 @@ export async function renderPackagesTab(view) {
     });
   }
 
-  function dropzone(pkg, included, title, items) {
-    const dz = h('div', { class: 'dropzone' },
+  function zone(pkg, included, title, items) {
+    return h('div', { class: 'dropzone' },
       h('div', { class: 'flex between' },
         h('div', { class: 'dz-title' }, title),
         h('button', { class: 'btn sm primary', onclick: () => openProductPicker(pkg, included) }, '➕ הוספת מוצר')),
       ...items.map(i => itemRow(pkg, i)),
-      !items.length ? h('p', { class: 'muted', style: 'margin:4px' }, 'גררו מוצרים לכאן או לחצו "הוספת מוצר"') : null);
-
-    dz.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; dz.classList.add('over'); });
-    dz.addEventListener('dragleave', () => dz.classList.remove('over'));
-    dz.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      dz.classList.remove('over');
-      const productId = e.dataTransfer.getData('text/plain');
-      if (!productId) return;
-      await addProduct(pkg, productId, included);
-    });
-    return dz;
+      !items.length ? h('p', { class: 'muted', style: 'margin:4px' }, 'לחצו "הוספת מוצר" כדי לצרף מוצר לאזור זה') : null);
   }
 
   function itemRow(pkg, item) {
-    const els = [
-      h('span', { draggable: true, style: 'cursor:grab', ondragstart: (e) => e.dataTransfer.setData('text/plain', item.product_id) }, '⠿'),
-      h('b', {}, item.product?.name || '?'),
-    ];
+    const els = [h('b', {}, item.product?.name || '?')];
     if (!item.included) {
       // optional items: per-package price override
       const priceInput = h('input', {

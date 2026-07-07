@@ -1,7 +1,7 @@
 // Tab 6 — הגדרות: profile, integrations (Google Calendar, webhook),
 // management signatures (draw/upload), team invitations, form builder.
 import { get, post, patch, del, setToken } from '../api.js';
-import { h, toast, modal, confirmModal, signaturePad, fileToDataUrl, initialsAvatar, passwordField, withBusy, skeletonCards, ICONS } from '../ui.js';
+import { h, toast, modal, confirmModal, signaturePad, fileToDataUrl, initialsAvatar, passwordField, withBusy, skeletonCards, ICONS, iconBadge } from '../ui.js';
 
 export async function renderSettingsTab(view, state) {
   view.append(h('h2', {}, 'הגדרות'));
@@ -17,6 +17,12 @@ export async function renderSettingsTab(view, state) {
   skel.remove();
   const grid = h('div', { class: 'grid-2', style: 'align-items:start' });
   view.append(grid);
+
+  // ================= dashboard (moved here, off the main tab bar) =================
+  grid.append(h('div', { class: 'card' },
+    h('h3', {}, iconBadge('📊', 'orange'), 'דשבורד אנליטיקה'),
+    h('p', { class: 'muted' }, 'המרות, הכנסות, ביצועי צוות ומקורות לידים.'),
+    h('button', { class: 'btn primary', onclick: () => { location.hash = 'tab=dashboard'; } }, 'צפייה בדשבורד')));
 
   // ================= profile =================
   const nameInput = h('input', { type: 'text', value: state.user.full_name || '' });
@@ -35,7 +41,7 @@ export async function renderSettingsTab(view, state) {
   });
 
   grid.append(h('div', { class: 'card' },
-    h('h3', {}, '👤 פרופיל'),
+    h('h3', {}, iconBadge('👤', 'yellow'), 'פרופיל'),
     h('div', { class: 'flex' }, avatarPreview, avatarFile),
     h('label', { class: 'field mt' }, h('span', {}, 'שם מלא'), nameInput),
     h('div', { class: 'grid-2' },
@@ -58,7 +64,7 @@ export async function renderSettingsTab(view, state) {
   // ================= integrations =================
   const statusDot = (ok) => h('span', { class: 'badge-dot', style: `background:${ok ? 'var(--ok)' : 'var(--danger)'}` });
   grid.append(h('div', { class: 'card' },
-    h('h3', {}, '🔌 אינטגרציות'),
+    h('h3', {}, iconBadge('🔌', 'cyan'), 'אינטגרציות'),
     h('p', {}, statusDot(!integrations.mock_db), ` בסיס נתונים: ${integrations.mock_db ? 'מצב Mock מקומי (הזן מפתחות Supabase ב-.env)' : 'Supabase מחובר'}`),
     h('p', {}, statusDot(integrations.resend), ` Resend (מיילים): ${integrations.resend ? 'פעיל' : 'לא מוגדר — מיילים מודפסים לקונסול'}`),
     h('p', {}, statusDot(integrations.openai), ` OpenAI (ניתוח הקלטות): ${integrations.openai ? 'פעיל' : 'לא מוגדר — מצב דמו'}`),
@@ -119,7 +125,7 @@ export async function renderSettingsTab(view, state) {
   renderSigs(signatures);
 
   grid.append(h('div', { class: 'card' },
-    h('h3', {}, '🖋️ חתימות הנהלה'),
+    h('h3', {}, iconBadge('🖋️', 'orange'), 'חתימות הנהלה'),
     h('p', { class: 'muted' }, 'חתימות רשמיות של הלהקה לשימוש בחוזים.'),
     sigList,
     h('button', {
@@ -153,7 +159,7 @@ export async function renderSettingsTab(view, state) {
     }, '+ חתימה חדשה')));
 
   // ================= team & invitations =================
-  const teamCard = h('div', { class: 'card' }, h('h3', {}, '👥 צוות והזמנות'));
+  const teamCard = h('div', { class: 'card' }, h('h3', {}, iconBadge('👥', 'yellow'), 'צוות והזמנות'));
   teamCard.append(...state.team.map(m => h('div', { class: 'pkg-item' },
     initialsAvatar(m.full_name, m.avatar_url), h('b', {}, m.full_name || m.email),
     h('span', { class: 'muted' }, m.email),
@@ -314,7 +320,7 @@ function formBuilderSection(forms, bindableFields) {
 
   section.append(
     h('div', { class: 'flex between' },
-      h('h3', { style: 'margin:0' }, '🧾 מחולל טפסי לידים'),
+      h('h3', { style: 'margin:0' }, iconBadge('🧾', 'cyan'), 'מחולל טפסי לידים'),
       h('button', { class: 'btn primary', onclick: () => openBuilder(null) }, '+ טופס חדש')),
     h('p', { class: 'muted' }, 'צרו טפסי לידים ממותגים, קבלו קוד הטמעה או Webhook — והחליפו את החיבור למאנדיי.'),
     list);

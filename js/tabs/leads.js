@@ -103,10 +103,100 @@ function visibleLeads() {
   return rows;
 }
 
+// ---------------- Excel-compatible CSV import / export ----------------
+// Real .xlsx would need a binary-format library; Excel opens UTF-8 CSV
+// natively (with a BOM for Hebrew), so we use that instead of a new dependency.
+const CSV_SKIP_TYPES = ['contacts', 'readonly'];
+
+function csvCell(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function exportCsv() {
+  const cols = columns().filter(c => !CSV_SKIP_TYPES.includes(c.type));
+  const statusLabels = { open: 'צינור ראשי', win: 'WIN', lost: 'LOST' };
+  const header = cols.map(c => c.label);
+  const rows = visibleLeads().map(l => cols.map(c => {
+    if (c.type === 'status') return statusLabels[l[c.key]] || l[c.key] || '';
+    if (c.type === 'select') {
+      const opt = (c.options || []).find(([v]) => String(v) === String(l[c.key]));
+      return opt ? opt[1] : (l[c.key] ?? '');
+    }
+    return l[c.key] ?? '';
+  }));
+  const csv = '﻿' + [header, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = h('a', { href: url, download: `zooglot-leads-${new Date().toISOString().slice(0, 10)}.csv` });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  toast(`יוצאו ${rows.length} לידים ✓`, 'success');
+}
+
+function parseCsv(text) {
+  const rows = []; let row = []; let field = ''; let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i], next = text[i + 1];
+    if (inQuotes) {
+      if (c === '"' && next === '"') { field += '"'; i++; }
+      else if (c === '"') inQuotes = false;
+      else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\r') { /* ignore, \n handles the break */ }
+    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+    else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(v => v !== ''));
+}
+
+async function importCsv(file) {
+  const text = (await file.text()).replace(/^﻿/, '');
+  const rows = parseCsv(text);
+  if (rows.length < 2) { toast('הקובץ ריק או לא תקין', 'error'); return; }
+
+  const [header, ...dataRows] = rows;
+  const cols = columns().filter(c => !CSV_SKIP_TYPES.includes(c.type));
+  const byLabel = new Map(cols.map(c => [c.label, c]));
+  const statusByLabel = { 'צינור ראשי': 'open', WIN: 'win', LOST: 'lost' };
+
+  let created = 0, failed = 0;
+  for (const row of dataRows) {
+    const body = {};
+    header.forEach((label, i) => {
+      const c = byLabel.get(label.trim());
+      const raw = row[i];
+      if (!c || raw === undefined || raw === '') return;
+      if (c.type === 'status') body[c.key] = statusByLabel[raw] || raw;
+      else if (c.type === 'select') {
+        const opt = (c.options || []).find(([, t]) => t === raw);
+        body[c.key] = opt ? opt[0] : raw;
+      } else body[c.key] = raw;
+    });
+    if (!body.name) { failed++; continue; }
+    try { await post('/leads', body); created++; }
+    catch { failed++; }
+  }
+  toast(`יובאו ${created} לידים${failed ? `, ${failed} נכשלו` : ''} ✓`, created ? 'success' : 'error');
+  reload();
+}
+
 // ---------------- main draw ----------------
 function draw() {
   const host = ctx.view.querySelector('#leads-host') || h('div', { id: 'leads-host' });
   if (!host.parentNode) ctx.view.append(host);
+
+  // preserve focus/cursor on the search box across re-renders (it's rebuilt every draw())
+  const prevSearch = host.querySelector('input[type="search"]');
+  const hadFocus = prevSearch && document.activeElement === prevSearch;
+  const selStart = hadFocus ? prevSearch.selectionStart : null;
+  const selEnd = hadFocus ? prevSearch.selectionEnd : null;
+
   host.innerHTML = '';
 
   const counts = { open: 0, win: 0, lost: 0 };
@@ -117,6 +207,12 @@ function draw() {
     oninput: debounce((e) => { ctx.search = e.target.value; resetPaging(); draw(); }, 250),
   });
 
+  const importInput = h('input', { type: 'file', accept: '.csv', style: 'display:none' });
+  importInput.addEventListener('change', () => {
+    if (importInput.files[0]) importCsv(importInput.files[0]);
+    importInput.value = '';
+  });
+
   const toolbar = h('div', { class: 'board-toolbar' },
     h('div', { class: 'pipeline-tabs' },
       pipeBtn('open', `צינור ראשי (${counts.open})`),
@@ -124,12 +220,23 @@ function draw() {
       pipeBtn('lost', `LOST (${counts.lost})`),
       pipeBtn('all', 'הכל')),
     searchInput,
-    filterControl(),
-    h('span', { class: 'spacer', style: 'flex:1' }),
-    h('button', { class: 'btn', onclick: openVoiceModal }, '🎙️ ליד מהקלטה'),
-    h('button', { class: 'btn', onclick: openMergePicker }, '🔀 מיזוג כפולים'),
-    h('button', { class: 'btn primary', onclick: openNewLead }, '+ ליד חדש'),
+    h('div', { class: 'toolbar-actions' },
+      filterControl(),
+      h('button', { class: 'btn sm', onclick: openVoiceModal }, '🎙️ ליד מהקלטה'),
+      h('button', { class: 'btn sm', onclick: openMergePicker }, '🔀 מיזוג כפולים'),
+      h('button', { class: 'btn sm', onclick: exportCsv }, '⬇️ ייצוא לאקסל'),
+      h('button', { class: 'btn sm', onclick: () => importInput.click() }, '⬆️ ייבוא מאקסל'),
+      importInput,
+      h('button', { class: 'btn sm primary', onclick: openNewLead }, '+ ליד חדש')),
   );
+
+  if (hadFocus) {
+    // restore after the new input is in the DOM
+    requestAnimationFrame(() => {
+      searchInput.focus();
+      try { searchInput.setSelectionRange(selStart, selEnd); } catch { /* ignore */ }
+    });
+  }
 
   const rows = visibleLeads();
   const shown = rows.slice(0, ctx.limit);
@@ -213,7 +320,7 @@ function buildTable(rows) {
 }
 
 function buildRow(lead, cols) {
-  return h('tr', { dataset: { id: lead.id } },
+  const tr = h('tr', { dataset: { id: lead.id } },
     h('td', {},
       h('button', { class: 'icon-btn', title: 'עדכונים ותכתובת', onclick: () => openUpdatesDrawer(lead) },
         '💬', lead.updates_count ? h('sup', {}, lead.updates_count) : '')),
@@ -229,6 +336,45 @@ function buildRow(lead, cols) {
           reload();
         },
       }, '🗑️'))));
+  attachLongPress(tr, lead);
+  return tr;
+}
+
+// long-press (or long mouse-hold) on a row opens a vertical detail card —
+// handy on phones where the wide board needs horizontal scrolling to see everything
+function attachLongPress(tr, lead) {
+  let timer = null;
+  const start = (e) => {
+    if (e.target.closest('input, select, textarea, button, a')) return;
+    timer = setTimeout(() => { timer = null; openLeadDetailCard(lead); }, 550);
+  };
+  const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  tr.addEventListener('pointerdown', start);
+  tr.addEventListener('pointerup', cancel);
+  tr.addEventListener('pointerleave', cancel);
+  tr.addEventListener('pointercancel', cancel);
+}
+
+function openLeadDetailCard(lead) {
+  const statusLabels = { open: 'צינור ראשי', win: 'WIN 🎉', lost: 'LOST' };
+  const rows = columns().map(c => {
+    let value;
+    if (c.type === 'readonly') value = c.render(lead);
+    else if (c.type === 'contacts') value = (lead.contacts || []).map(x => x.name).join(', ') || '—';
+    else if (c.type === 'status') value = statusLabels[lead[c.key]] || '—';
+    else if (c.type === 'select') {
+      const opt = c.options.find(([v]) => String(v) === String(lead[c.key]));
+      value = opt ? opt[1] : (lead[c.key] || '—');
+    } else if (c.type === 'date') value = fmtDate(lead[c.key]);
+    else if (c.type === 'number') value = lead[c.key] != null ? fmtMoney(lead[c.key]) : '—';
+    else value = lead[c.key] || '—';
+    return h('div', { class: 'detail-row' },
+      h('span', { class: 'detail-label' }, c.label),
+      h('span', { class: 'detail-value' }, value));
+  });
+  modal(`כרטיס לקוח — ${lead.name}`, h('div', { class: 'detail-card' }, ...rows), {
+    actions: [{ label: 'סגירה', onclick: (close) => close() }],
+  });
 }
 
 function buildCell(lead, col) {
@@ -280,10 +426,12 @@ function buildCell(lead, col) {
       ...col.options.map(([v, t]) => h('option', { value: v, selected: String(lead[col.key] ?? '') === String(v) }, t)));
     sel.addEventListener('change', () => save(sel.value));
     if (col.chip && lead[col.key]) {
-      // colorize like monday chips
+      // colorize like monday chips — chip shows the label text, the real
+      // <select> sits invisibly on top so the whole thing stays clickable
       const cls = col.chip === 'relation' ? `relation-${lead[col.key]}` : (lead[col.key] === 'לקוח משאלון' ? 'stage-form' : 'stage');
-      sel.style.background = 'transparent';
-      td.append(h('span', { class: `chip ${cls}`, style: 'margin-inline-end:4px' }, ''), sel);
+      const opt = col.options.find(([v]) => String(v) === String(lead[col.key]));
+      td.append(h('div', { class: 'chip-select-wrap' },
+        h('span', { class: `chip ${cls}` }, opt ? opt[1] : lead[col.key]), sel));
     } else td.append(sel);
     return td;
   }
@@ -523,7 +671,9 @@ function openMergeResolve(primary, dup) {
 }
 
 // ---------------- voice note (AI) ----------------
-function openVoiceModal(lead) {
+// Exported so the mobile bottom-nav FAB can capture a lead by voice from
+// any tab, even before the leads tab has ever been mounted (ctx is null then).
+export function openVoiceModal(lead) {
   const isLead = lead && lead.id;
   let mediaRecorder = null, chunks = [], blob = null;
 
@@ -609,7 +759,8 @@ function openVoiceModal(lead) {
           });
           toast(isLead ? 'השדות עודכנו בליד ✓' : `נוצר ליד חדש: ${saved.name} ✓`, 'success');
           document.querySelector('.modal-backdrop')?.remove();
-          reload();
+          // ctx is only set once the leads tab has mounted in this session
+          if (ctx) reload(); else location.hash = 'tab=leads';
         },
       }, isLead ? '💾 עדכון הליד' : '💾 יצירת ליד חדש'));
     analyzeBtn.style.display = 'none';

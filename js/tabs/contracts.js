@@ -105,7 +105,7 @@ export async function renderContractsTab(view) {
     const pkgSel = h('select', {},
       h('option', { value: '' }, '— בחר חבילה —'),
       ...packages.map(p => h('option', { value: p.id, selected: c.package_id === p.id }, `${p.name} · ${fmtMoney(p.base_price)}`)));
-    const pkgDrop = h('div', { class: 'dropzone', style: 'min-height:46px' },
+    const pkgDrop = h('div', { class: 'dropzone drag-target', style: 'min-height:46px' },
       h('div', { class: 'dz-title' }, '📦 גררו לכאן חבילה מהרשימה, או בחרו למעלה'),
       ...packages.map(p => h('span', {
         class: 'var-chip', draggable: true,
