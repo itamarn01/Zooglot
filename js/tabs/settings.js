@@ -265,20 +265,63 @@ function formBuilderSection(forms, bindableFields) {
     const chosen = new Map((f.fields || []).map(x => [x.key, x]));
     const fieldRows = h('div', {},
       ...bindableFields.map(bf => {
+        const existing = chosen.get(bf.key);
         const cb = h('input', { type: 'checkbox', checked: chosen.has(bf.key), style: 'width:auto' });
-        const req = h('input', { type: 'checkbox', checked: chosen.get(bf.key)?.required || false, style: 'width:auto', title: 'שדה חובה' });
-        const label = h('input', { type: 'text', value: chosen.get(bf.key)?.label || bf.label, style: 'max-width:200px' });
+        const req = h('input', { type: 'checkbox', checked: existing?.required || false, style: 'width:auto', title: 'שדה חובה' });
+        const label = h('input', { type: 'text', value: existing?.label || bf.label, style: 'max-width:200px' });
+        const desc = h('input', {
+          type: 'text', value: existing?.description || '',
+          placeholder: 'טקסט הסבר לשדה (אופציונלי) — יוצג מתחת לתווית, כמו בטפסי Monday',
+        });
         const sync = () => {
-          if (cb.checked) chosen.set(bf.key, { key: bf.key, label: label.value, type: bf.type, options: bf.options, required: req.checked });
-          else chosen.delete(bf.key);
+          if (cb.checked) {
+            chosen.set(bf.key, {
+              key: bf.key, label: label.value, type: bf.type, options: bf.options,
+              required: req.checked, description: desc.value,
+            });
+          } else chosen.delete(bf.key);
         };
         cb.addEventListener('change', sync);
         req.addEventListener('change', sync);
         label.addEventListener('change', sync);
-        return h('div', { class: 'pkg-item' }, cb, label,
-          h('span', { class: 'muted' }, `(${bf.type})`), h('span', { style: 'flex:1' }),
-          h('label', { class: 'flex', style: 'gap:4px' }, req, h('span', { class: 'muted' }, 'חובה')));
+        desc.addEventListener('input', sync);
+        return h('div', { class: 'card', style: 'padding:9px 12px;margin-bottom:8px' },
+          h('div', { class: 'flex', style: 'flex-wrap:wrap' },
+            cb, label,
+            h('span', { class: 'muted' }, `(${bf.type})`), h('span', { style: 'flex:1' }),
+            h('label', { class: 'flex', style: 'gap:4px' }, req, h('span', { class: 'muted' }, 'חובה'))),
+          h('div', { class: 'mt', style: 'margin-top:6px' }, desc));
       }));
+
+    // live preview of the (unsaved) form as the client would see it — mirrors form.js's rendering
+    function openPreview() {
+      const en = lang.value === 'en';
+      const fields = [...chosen.values()];
+      const previewInput = (fl) => {
+        const style = 'width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:inherit;font-family:inherit;font-size:14px';
+        if (fl.type === 'select') return h('select', { style, disabled: true }, h('option', {}, en ? '— choose —' : '— בחרו —'), ...(fl.options || []).map(o => h('option', {}, o)));
+        if (fl.type === 'textarea') return h('textarea', { style, rows: 3, disabled: true });
+        return h('input', { style, type: fl.type || 'text', disabled: true });
+      };
+      const body = h('div', {
+        style: `background:${cBg.value};color:#eef7fa;padding:26px clamp(16px,4vw,34px);border-radius:14px;direction:${en ? 'ltr' : 'rtl'};text-align:${en ? 'left' : 'right'};font-family:Assistant,Arial,sans-serif`,
+      },
+        h('img', { src: logoData || '/assets/logo.svg', alt: 'logo', style: 'max-height:70px;display:block;margin:0 auto 12px' }),
+        h('h2', { style: `text-align:center;color:${cPrimary.value};font-family:inherit` }, name.value.trim() || (en ? 'Form title' : 'כותרת הטופס')),
+        intro.value.trim() ? h('div', { style: 'text-align:center;opacity:.85;font-size:14px;margin-bottom:16px' }, intro.value) : null,
+        !fields.length ? h('p', { style: 'text-align:center;opacity:.7' }, en ? 'No fields selected yet' : 'עדיין לא נבחרו שדות') : null,
+        ...fields.map(fl => h('div', { style: 'margin-bottom:15px' },
+          h('label', { style: 'display:block;font-size:14px;margin-bottom:3px' },
+            fl.label, fl.required ? h('span', { style: `color:${cPrimary.value}` }, ' *') : ''),
+          fl.description ? h('div', { style: 'font-size:12.5px;opacity:.65;margin-bottom:5px' }, fl.description) : null,
+          previewInput(fl))),
+        h('button', {
+          disabled: true, style: `width:100%;padding:12px;border:none;border-radius:12px;background:${cPrimary.value};color:#0b2830;font-weight:700;font-family:inherit;font-size:15px;margin-top:6px;cursor:default`,
+        }, en ? 'Send' : 'שליחה 🎷'));
+      modal(en ? 'Preview' : 'תצוגה מקדימה — כך הלקוח יראה את הטופס', body, {
+        wide: true, actions: [{ label: 'סגירה', onclick: (close) => close() }],
+      });
+    }
 
     modal(isNew ? 'טופס לידים חדש' : `עריכת טופס — ${f.name}`, h('div', {},
       h('div', { class: 'grid-2' },
@@ -289,7 +332,9 @@ function formBuilderSection(forms, bindableFields) {
         h('label', { class: 'flex' }, h('span', { class: 'muted' }, 'צבע ראשי'), cPrimary),
         h('label', { class: 'flex' }, h('span', { class: 'muted' }, 'צבע רקע'), cBg),
         h('label', { class: 'flex' }, h('span', { class: 'muted' }, 'לוגו'), logoFile)),
-      h('h4', { class: 'mt' }, 'בחירת שדות (מתוך עמודות מעקב זוגות)'),
+      h('div', { class: 'flex between mt' },
+        h('h4', { style: 'margin:0' }, 'בחירת שדות (מתוך עמודות מעקב זוגות)'),
+        h('button', { type: 'button', class: 'btn sm', onclick: () => openPreview() }, '👁️ תצוגה מקדימה')),
       fieldRows), {
       wide: true,
       actions: [{

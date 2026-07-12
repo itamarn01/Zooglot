@@ -2,11 +2,12 @@
 // (live price), and sign digitally. Token-based access, no login.
 import { h, toast, signaturePad, fmtMoney, fmtDate } from './ui.js';
 
+const API_BASE = window.__API_BASE__ || '';
 const token = new URLSearchParams(location.search).get('t');
 const root = document.getElementById('portal');
 
 async function api(path, opts = {}) {
-  const rsp = await fetch(`/api/portal/${token}${path}`, {
+  const rsp = await fetch(`${API_BASE}/api/portal/${token}${path}`, {
     method: opts.method || 'GET',
     headers: opts.body ? { 'Content-Type': 'application/json' } : {},
     body: opts.body ? JSON.stringify(opts.body) : undefined,

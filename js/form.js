@@ -1,4 +1,5 @@
 // Public lead-capture form renderer (built by the form builder in Settings).
+const API_BASE = window.__API_BASE__ || '';
 const slug = new URLSearchParams(location.search).get('f');
 const root = document.getElementById('form-root');
 
@@ -17,7 +18,7 @@ function el(tag, attrs = {}, ...kids) {
   if (!slug) { root.innerHTML = '<p class="done">קישור טופס לא תקין</p>'; return; }
   let form;
   try {
-    const rsp = await fetch(`/api/public/forms/${slug}`);
+    const rsp = await fetch(`${API_BASE}/api/public/forms/${slug}`);
     if (!rsp.ok) throw new Error();
     ({ form } = await rsp.json());
   } catch {
@@ -49,7 +50,10 @@ function el(tag, attrs = {}, ...kids) {
     }
     if (f.required) input.required = true;
     inputs[f.key] = input;
-    return [el('label', { for: f.key }, f.label, f.required ? el('span', { class: 'req' }, ' *') : ''), input];
+    const kids = [el('label', { for: f.key }, f.label, f.required ? el('span', { class: 'req' }, ' *') : '')];
+    if (f.description) kids.push(el('div', { class: 'field-help' }, f.description));
+    kids.push(input);
+    return kids;
   };
 
   const formEl = el('form', {}, ...(form.fields || []).map(fieldEl),
@@ -60,7 +64,7 @@ function el(tag, attrs = {}, ...kids) {
     const payload = Object.fromEntries(Object.entries(inputs)
       .map(([k, i]) => [k, i.value]).filter(([, v]) => v !== ''));
     try {
-      const rsp = await fetch(`/api/public/forms/${slug}/submit`, {
+      const rsp = await fetch(`${API_BASE}/api/public/forms/${slug}/submit`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
