@@ -3,6 +3,7 @@
 // thread, voice-note AI capture and Google Calendar sync.
 import { get, post, patch, del, upload } from '../api.js';
 import { h, toast, modal, confirmModal, debounce, fmtMoney, fmtDate, skeletonTable, withBusy } from '../ui.js';
+import { openImportWizard } from './import.js';
 
 const PAGE_SIZE = 100;
 
@@ -104,8 +105,8 @@ function visibleLeads() {
 }
 
 // ---------------- Excel-compatible CSV import / export ----------------
-// Real .xlsx would need a binary-format library; Excel opens UTF-8 CSV
-// natively (with a BOM for Hebrew), so we use that instead of a new dependency.
+// Export uses UTF-8 CSV with a BOM so Excel opens Hebrew correctly.
+// Import is handled by the Monday-style wizard in ./import.js (supports .xlsx too).
 const CSV_SKIP_TYPES = ['contacts', 'readonly'];
 
 function csvCell(v) {
@@ -137,55 +138,6 @@ function exportCsv() {
   toast(`יוצאו ${rows.length} לידים ✓`, 'success');
 }
 
-function parseCsv(text) {
-  const rows = []; let row = []; let field = ''; let inQuotes = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i], next = text[i + 1];
-    if (inQuotes) {
-      if (c === '"' && next === '"') { field += '"'; i++; }
-      else if (c === '"') inQuotes = false;
-      else field += c;
-    } else if (c === '"') inQuotes = true;
-    else if (c === ',') { row.push(field); field = ''; }
-    else if (c === '\r') { /* ignore, \n handles the break */ }
-    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
-    else field += c;
-  }
-  if (field !== '' || row.length) { row.push(field); rows.push(row); }
-  return rows.filter(r => r.some(v => v !== ''));
-}
-
-async function importCsv(file) {
-  const text = (await file.text()).replace(/^﻿/, '');
-  const rows = parseCsv(text);
-  if (rows.length < 2) { toast('הקובץ ריק או לא תקין', 'error'); return; }
-
-  const [header, ...dataRows] = rows;
-  const cols = columns().filter(c => !CSV_SKIP_TYPES.includes(c.type));
-  const byLabel = new Map(cols.map(c => [c.label, c]));
-  const statusByLabel = { 'צינור ראשי': 'open', WIN: 'win', LOST: 'lost' };
-
-  let created = 0, failed = 0;
-  for (const row of dataRows) {
-    const body = {};
-    header.forEach((label, i) => {
-      const c = byLabel.get(label.trim());
-      const raw = row[i];
-      if (!c || raw === undefined || raw === '') return;
-      if (c.type === 'status') body[c.key] = statusByLabel[raw] || raw;
-      else if (c.type === 'select') {
-        const opt = (c.options || []).find(([, t]) => t === raw);
-        body[c.key] = opt ? opt[0] : raw;
-      } else body[c.key] = raw;
-    });
-    if (!body.name) { failed++; continue; }
-    try { await post('/leads', body); created++; }
-    catch { failed++; }
-  }
-  toast(`יובאו ${created} לידים${failed ? `, ${failed} נכשלו` : ''} ✓`, created ? 'success' : 'error');
-  reload();
-}
-
 // ---------------- main draw ----------------
 function draw() {
   const host = ctx.view.querySelector('#leads-host') || h('div', { id: 'leads-host' });
@@ -207,12 +159,6 @@ function draw() {
     oninput: debounce((e) => { ctx.search = e.target.value; resetPaging(); draw(); }, 250),
   });
 
-  const importInput = h('input', { type: 'file', accept: '.csv', style: 'display:none' });
-  importInput.addEventListener('change', () => {
-    if (importInput.files[0]) importCsv(importInput.files[0]);
-    importInput.value = '';
-  });
-
   const toolbar = h('div', { class: 'board-toolbar' },
     h('div', { class: 'pipeline-tabs' },
       pipeBtn('open', `צינור ראשי (${counts.open})`),
@@ -225,8 +171,7 @@ function draw() {
       h('button', { class: 'btn sm', onclick: openVoiceModal }, '🎙️ ליד מהקלטה'),
       h('button', { class: 'btn sm', onclick: openMergePicker }, '🔀 מיזוג כפולים'),
       h('button', { class: 'btn sm', onclick: exportCsv }, '⬇️ ייצוא לאקסל'),
-      h('button', { class: 'btn sm', onclick: () => importInput.click() }, '⬆️ ייבוא מאקסל'),
-      importInput,
+      h('button', { class: 'btn sm', onclick: () => openImportWizard(() => reload()) }, '⬆️ ייבוא מאקסל'),
       h('button', { class: 'btn sm primary', onclick: openNewLead }, '+ ליד חדש')),
   );
 

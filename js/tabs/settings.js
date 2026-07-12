@@ -159,31 +159,7 @@ export async function renderSettingsTab(view, state) {
     }, '+ חתימה חדשה')));
 
   // ================= team & invitations =================
-  const teamCard = h('div', { class: 'card' }, h('h3', {}, iconBadge('👥', 'yellow'), 'צוות והזמנות'));
-  teamCard.append(...state.team.map(m => h('div', { class: 'pkg-item' },
-    initialsAvatar(m.full_name, m.avatar_url), h('b', {}, m.full_name || m.email),
-    h('span', { class: 'muted' }, m.email),
-    m.role === 'admin' ? h('span', { class: 'chip stage' }, 'אדמין') : '')));
-
-  if (state.user.role === 'admin') {
-    const invEmail = h('input', { type: 'email', dir: 'ltr', placeholder: 'email@example.com' });
-    teamCard.append(
-      h('h4', { class: 'mt' }, 'הזמנת איש צוות (בהזמנה בלבד)'),
-      h('div', { class: 'flex' }, invEmail,
-        h('button', {
-          class: 'btn primary', onclick: withBusy(async () => {
-            try {
-              const { link } = await post('/settings/invitations', { email: invEmail.value });
-              navigator.clipboard?.writeText(link);
-              toast('ההזמנה נשלחה במייל והקישור הועתק ✓', 'success');
-              invEmail.value = '';
-            } catch (e) { toast(e.message, 'error'); }
-          }),
-        }, 'שליחת הזמנה')));
-  } else {
-    teamCard.append(h('p', { class: 'muted' }, 'הזמנת אנשי צוות חדשים זמינה לאדמין בלבד.'));
-  }
-  grid.append(teamCard);
+  grid.append(await teamSection(state));
 
   // ================= form builder =================
   view.append(formBuilderSection(forms, bindable.fields));
@@ -198,6 +174,132 @@ export async function renderSettingsTab(view, state) {
         location.reload();
       },
     }, h('span', { class: 'tab-ico', style: 'width:16px;height:16px', html: ICONS.signout }), 'התנתקות')));
+}
+
+// ---------------- team & invitations management ----------------
+async function teamSection(state) {
+  const isAdmin = state.user.role === 'admin';
+  const card = h('div', { class: 'card' }, h('h3', {}, iconBadge('👥', 'yellow'), 'צוות והזמנות'));
+  const membersBox = h('div', {});
+  const invitesBox = h('div', {});
+
+  async function refresh() {
+    const [{ team }, invRsp] = await Promise.all([
+      get('/settings/team'),
+      isAdmin ? get('/settings/invitations').catch(() => ({ invitations: [] })) : Promise.resolve({ invitations: [] }),
+    ]);
+    state.team = team;
+    renderMembers(team);
+    renderInvites(invRsp.invitations || []);
+  }
+
+  function renderMembers(team) {
+    membersBox.innerHTML = '';
+    membersBox.append(h('h4', { class: 'mt' }, `חברי צוות (${team.length})`));
+    for (const m of team) {
+      const isSelf = m.id === state.user.id;
+      const roleChip = h('span', { class: `chip ${m.role === 'admin' ? 'stage' : 'source'}` }, m.role === 'admin' ? 'אדמין' : 'חבר צוות');
+      const actions = [];
+      if (isAdmin) {
+        actions.push(h('button', { class: 'btn sm', title: 'עריכה', onclick: () => editMember(m) }, '✏️'));
+        if (!isSelf) {
+          actions.push(h('button', {
+            class: 'icon-btn', title: 'מחיקת משתמש', onclick: async () => {
+              if (!await confirmModal('מחיקת משתמש', `למחוק את ${m.full_name || m.email} מהצוות? הפעולה אינה הפיכה.`)) return;
+              try { await del(`/settings/team/${m.id}`); toast('המשתמש הוסר', 'success'); refresh(); }
+              catch (e) { toast(e.message, 'error'); }
+            },
+          }, '🗑️'));
+        }
+      }
+      membersBox.append(h('div', { class: 'pkg-item member-row' },
+        initialsAvatar(m.full_name, m.avatar_url),
+        h('div', { class: 'grow' },
+          h('b', {}, m.full_name || m.email), isSelf ? h('span', { class: 'muted' }, ' (אני)') : '',
+          h('div', { class: 'muted', style: 'font-size:12px', dir: 'ltr' }, m.email)),
+        roleChip,
+        m.email_verified ? '' : h('span', { class: 'invite-status pending' }, 'מייל לא אומת'),
+        ...actions));
+    }
+  }
+
+  function editMember(m) {
+    const nameInput = h('input', { type: 'text', value: m.full_name || '' });
+    const roleSel = h('select', {},
+      h('option', { value: 'member', selected: m.role !== 'admin' }, 'חבר צוות'),
+      h('option', { value: 'admin', selected: m.role === 'admin' }, 'אדמין'));
+    modal(`עריכת ${m.full_name || m.email}`, h('div', {},
+      h('label', { class: 'field' }, h('span', {}, 'שם מלא'), nameInput),
+      h('label', { class: 'field' }, h('span', {}, 'הרשאה'), roleSel),
+      m.id === state.user.id ? h('p', { class: 'muted' }, 'אי אפשר להסיר לעצמך הרשאת אדמין.') : null), {
+      actions: [
+        {
+          label: '💾 שמירה', kind: 'primary', onclick: async (close) => {
+            try {
+              await patch(`/settings/team/${m.id}`, { full_name: nameInput.value, role: roleSel.value });
+              close(); toast('המשתמש עודכן ✓', 'success'); refresh();
+            } catch (e) { toast(e.message, 'error'); return false; }
+          },
+        },
+        { label: 'ביטול', onclick: (close) => close() },
+      ],
+    });
+  }
+
+  function renderInvites(invites) {
+    invitesBox.innerHTML = '';
+    if (!isAdmin) { invitesBox.append(h('p', { class: 'muted mt' }, 'הזמנת אנשי צוות זמינה לאדמין בלבד.')); return; }
+
+    const invEmail = h('input', { type: 'email', dir: 'ltr', placeholder: 'email@example.com' });
+    invitesBox.append(
+      h('h4', { class: 'mt' }, 'הזמנת איש צוות חדש'),
+      h('div', { class: 'flex' }, invEmail,
+        h('button', {
+          class: 'btn primary', onclick: withBusy(async () => {
+            try {
+              const { link } = await post('/settings/invitations', { email: invEmail.value });
+              navigator.clipboard?.writeText(link);
+              toast('ההזמנה נשלחה במייל והקישור הועתק ✓', 'success');
+              invEmail.value = '';
+              refresh();
+            } catch (e) { toast(e.message, 'error'); }
+          }),
+        }, 'שליחת הזמנה')));
+
+    const pending = invites.filter(i => !i.accepted_at);
+    if (pending.length) {
+      invitesBox.append(h('h4', { class: 'mt' }, `הזמנות שנשלחו (${pending.length})`));
+      for (const inv of pending) {
+        invitesBox.append(h('div', { class: 'pkg-item member-row' },
+          h('div', { class: 'grow' },
+            h('b', { dir: 'ltr' }, inv.email),
+            h('div', { class: 'muted', style: 'font-size:12px' }, `נשלחה ${new Date(inv.created_at).toLocaleDateString('he-IL')}`)),
+          h('span', { class: 'invite-status pending' }, 'ממתין להצטרפות'),
+          h('button', {
+            class: 'btn sm', title: 'העתקת קישור ההזמנה', onclick: () => {
+              navigator.clipboard?.writeText(`${location.origin}/#invite=${inv.token}`);
+              toast('קישור ההזמנה הועתק ✓', 'success');
+            },
+          }, '🔗'),
+          h('button', {
+            class: 'btn sm', title: 'שליחה חוזרת', onclick: withBusy(async () => {
+              try { await post(`/settings/invitations/${inv.id}/resend`, {}); toast('ההזמנה נשלחה שוב ✓', 'success'); }
+              catch (e) { toast(e.message, 'error'); }
+            }),
+          }, '✉️'),
+          h('button', {
+            class: 'icon-btn', title: 'ביטול ההזמנה', onclick: async () => {
+              if (!await confirmModal('ביטול הזמנה', `לבטל את ההזמנה ל-${inv.email}?`)) return;
+              await del(`/settings/invitations/${inv.id}`); toast('ההזמנה בוטלה', 'success'); refresh();
+            },
+          }, '🗑️')));
+      }
+    }
+  }
+
+  card.append(membersBox, invitesBox);
+  await refresh();
+  return card;
 }
 
 // ---------------- form builder ----------------
