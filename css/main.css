@@ -183,6 +183,24 @@ table.board td .cell-edit:focus { border-color: var(--brand); background: var(--
 table.board td.saved-flash { animation: savedFlash 1s ease; }
 @keyframes savedFlash { 0% { background: rgba(55, 196, 127, .35); } 100% { background: transparent; } }
 
+/* Excel-like grid: vertical rules + fixed layout so column widths are exact */
+table.board.grid { table-layout: fixed; min-width: 0; }
+table.board.grid th, table.board.grid td {
+  border-inline-end: 1px solid var(--line);
+  overflow: hidden; text-overflow: ellipsis;
+}
+table.board.grid th:last-child, table.board.grid td:last-child { border-inline-end: none; }
+table.board.grid th { position: relative; padding-inline-end: 12px; }
+table.board.grid th .th-label {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+}
+/* resize grip on the (RTL) leading edge of each header */
+.col-resize {
+  position: absolute; inset-block: 0; inset-inline-start: 0; width: 8px;
+  cursor: col-resize; touch-action: none; z-index: 6;
+}
+.col-resize:hover, .col-resize.dragging { background: var(--brand); opacity: .55; }
+
 .chip {
   display: inline-block; border-radius: 6px; padding: 2px 10px;
   font-size: 12.5px; font-weight: 700; color: #fff;
@@ -275,19 +293,12 @@ table.board td.saved-flash { animation: savedFlash 1s ease; }
 .update-item .meta { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
 .update-item .body-text { white-space: pre-wrap; font-size: 14px; }
 
-/* ---------- packages: product reference list + add zones ---------- */
-.dnd-product {
-  border: 1px solid var(--line); background: var(--bg-soft); border-radius: 10px;
-  padding: 8px 12px; margin-bottom: 8px; display: flex; justify-content: space-between; gap: 8px;
-}
+/* ---------- packages: included / optional zones ---------- */
 .dropzone {
   border: 1px solid var(--line); border-radius: 12px; padding: 10px; min-height: 70px;
   margin-bottom: 10px; transition: border-color .15s, background .15s;
 }
 .dropzone .dz-title { font-size: 13px; color: var(--text-dim); margin-bottom: 8px; font-weight: 700; }
-/* the contract editor still lets you drag a package chip in — keep that one dashed+highlighted */
-.dropzone.drag-target { border-style: dashed; }
-.dropzone.drag-target.over { border-color: var(--brand); background: rgba(247, 193, 30, .08); box-shadow: inset 0 0 20px rgba(247, 193, 30, .12); }
 .pkg-item { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin-bottom: 6px; font-size: 14px; }
 .pkg-item .price-input { width: 90px; padding: 3px 8px; font-size: 13px; }
 
@@ -347,12 +358,6 @@ table.simple th { color: var(--text-dim); font-size: 12.5px; }
 .empty-state { text-align: center; color: var(--text-dim); padding: 44px 10px; }
 .empty-state .big { font-size: 40px; }
 
-/* ---------- lead detail card (long-press) ---------- */
-.detail-card { display: flex; flex-direction: column; }
-.detail-row { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--line); }
-.detail-row:last-child { border-bottom: none; }
-.detail-label { color: var(--text-dim); font-weight: 700; white-space: nowrap; font-size: 13px; }
-.detail-value { text-align: left; word-break: break-word; }
 
 /* ---------- KOLOT section titles (diagonal spotlight bar) ---------- */
 main#view > h2 {
@@ -461,6 +466,38 @@ main#view > h2::after {
 @keyframes loadSlide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
 @keyframes splashOut { to { opacity: 0; visibility: hidden; } }
 
+/* ---------- searchable combo box ---------- */
+.combo { position: relative; }
+.combo-list {
+  display: none; position: absolute; inset-inline: 0; top: calc(100% + 4px); z-index: 120;
+  max-height: 240px; overflow-y: auto; background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+}
+.combo-list.open { display: block; }
+.combo-opt { padding: 8px 12px; cursor: pointer; font-size: 14px; }
+.combo-opt:hover { background: rgba(247, 193, 30, .12); }
+.combo-opt.sel { color: var(--brand); font-weight: 700; }
+.combo-empty { padding: 10px 12px; color: var(--text-dim); font-size: 13.5px; }
+
+/* ---------- lead drawer tabs (updates / card / reminders) ---------- */
+.drawer-tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--bg-soft); }
+.drawer-tabs button {
+  appearance: none; background: none; border: none; color: var(--text-dim); cursor: pointer;
+  font-family: var(--font-body); font-size: 13.5px; font-weight: 700; padding: 10px 12px;
+  border-bottom: 3px solid transparent; white-space: nowrap;
+}
+.drawer-tabs button:hover { color: var(--text); }
+.drawer-tabs button.active { color: var(--brand); border-bottom-color: var(--brand); }
+.drawer .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.drawer .card-grid label.field { margin-bottom: 4px; }
+@media (max-width: 640px) { .drawer .card-grid { grid-template-columns: 1fr; } }
+
+.reminder-item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--bg-soft); }
+.reminder-item.sent { border-inline-start: 4px solid var(--ok); }
+.reminder-item.pending { border-inline-start: 4px solid var(--brand); }
+.reminder-item.failed { border-inline-start: 4px solid var(--danger); }
+.reminder-item .meta { font-size: 12px; color: var(--text-dim); }
+
 /* ---------- import wizard ---------- */
 .modal.wizard { max-width: 1000px; }
 .wiz-steps { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: 4px 0 18px; }
@@ -508,10 +545,6 @@ main#view > h2::after {
   main#view { padding: 14px; }
 }
 
-/* packages layout: products panel + package cards */
-.pkg-layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start; }
-.pkg-layout .products-panel { position: sticky; top: 116px; max-height: calc(100vh - 140px); overflow-y: auto; }
-
 /* ---------- responsive: iPhone ---------- */
 @media (max-width: 640px) {
   body { font-size: 14px; }
@@ -529,11 +562,6 @@ main#view > h2::after {
   .board-toolbar .pipeline-tabs button { flex: 1; padding: 8px 6px; }
   .modal { padding: 16px; }
   table.board { min-width: 900px; } /* horizontal scroll inside .table-wrap */
-  /* packages: single column, products panel first, not sticky */
-  .pkg-layout { grid-template-columns: 1fr; }
-  .pkg-layout .products-panel { position: static; max-height: none; }
-  /* keep drag from panning the page on touch */
-  .dnd-product, .dropzone, .pkg-item [draggable] { touch-action: none; }
 
   /* app-style bottom navigation replaces the top tab bar */
   nav.tabs { display: none; }

@@ -120,6 +120,45 @@ export const ICONS = {
 export function iconBadge(emoji, color = 'yellow') {
   return h('span', { class: `icon-badge${color !== 'yellow' ? ` ${color}` : ''}` }, emoji);
 }
+
+// Searchable select. options: [{ value, label }]. Returns { el, get(), set(v) }.
+export function comboBox(options, { value = '', placeholder = 'חיפוש…', empty = '— בחרו —' } = {}) {
+  let current = value;
+  const labelOf = (v) => options.find(o => String(o.value) === String(v))?.label || '';
+
+  const input = h('input', { type: 'text', placeholder, autocomplete: 'off', value: labelOf(current) });
+  const list = h('div', { class: 'combo-list' });
+  const el = h('div', { class: 'combo' }, input, list);
+
+  const close = () => { list.classList.remove('open'); input.value = labelOf(current); };
+  const choose = (o) => { current = o.value; input.value = o.label; close(); el.dispatchEvent(new Event('change')); };
+
+  function renderList(filter = '') {
+    list.innerHTML = '';
+    const q = filter.trim().toLowerCase();
+    const matches = options.filter(o => !q || o.label.toLowerCase().includes(q));
+    if (empty && !q) matches.unshift({ value: '', label: empty });
+    if (!matches.length) { list.append(h('div', { class: 'combo-empty' }, 'אין תוצאות')); return; }
+    for (const o of matches.slice(0, 100)) {
+      list.append(h('div', {
+        class: `combo-opt${String(o.value) === String(current) ? ' sel' : ''}`,
+        // mousedown fires before the input's blur, so the click isn't swallowed
+        onmousedown: (e) => { e.preventDefault(); choose(o); },
+      }, o.label));
+    }
+  }
+
+  input.addEventListener('focus', () => { input.select(); renderList(''); list.classList.add('open'); });
+  input.addEventListener('input', () => { renderList(input.value); list.classList.add('open'); });
+  input.addEventListener('blur', () => setTimeout(close, 0));
+  input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { close(); input.blur(); } });
+
+  return {
+    el,
+    get: () => current,
+    set: (v) => { current = v; input.value = labelOf(v); },
+  };
+}
 const EYE_OPEN = ICONS.eyeOpen;
 const EYE_CLOSED = ICONS.eyeClosed;
 

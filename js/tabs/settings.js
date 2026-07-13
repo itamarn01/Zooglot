@@ -26,6 +26,7 @@ export async function renderSettingsTab(view, state) {
 
   // ================= profile =================
   const nameInput = h('input', { type: 'text', value: state.user.full_name || '' });
+  const phoneInput = h('input', { type: 'tel', dir: 'ltr', value: state.user.phone || '', placeholder: '05X-XXXXXXX' });
   const curPassF = passwordField({ autocomplete: 'current-password' });
   const newPassF = passwordField({ autocomplete: 'new-password', minlength: 8 });
   const curPass = curPassF.input, newPass = newPassF.input;
@@ -44,13 +45,15 @@ export async function renderSettingsTab(view, state) {
     h('h3', {}, iconBadge('👤', 'yellow'), 'פרופיל'),
     h('div', { class: 'flex' }, avatarPreview, avatarFile),
     h('label', { class: 'field mt' }, h('span', {}, 'שם מלא'), nameInput),
+    h('label', { class: 'field' },
+      h('span', {}, 'טלפון (לתזכורות בוואטסאפ)'), phoneInput),
     h('div', { class: 'grid-2' },
       h('label', { class: 'field' }, h('span', {}, 'סיסמה נוכחית'), curPassF.wrap),
       h('label', { class: 'field' }, h('span', {}, 'סיסמה חדשה (אופציונלי)'), newPassF.wrap)),
     h('button', {
       class: 'btn primary', onclick: withBusy(async () => {
         try {
-          const body = { full_name: nameInput.value };
+          const body = { full_name: nameInput.value, phone: phoneInput.value.trim() };
           if (avatarData) body.avatar_url = avatarData;
           if (newPass.value) { body.new_password = newPass.value; body.current_password = curPass.value; }
           const { user } = await patch('/settings/profile', body);

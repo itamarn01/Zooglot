@@ -22,27 +22,12 @@ export async function renderPackagesTab(view) {
         h('h2', { style: 'margin:0' }, 'חבילות'),
         h('span', { style: 'flex:1' }),
         h('button', { class: 'btn primary', onclick: openNew }, '+ חבילה חדשה')),
-      h('div', { class: 'pkg-layout' },
-        productsPanel(),
-        h('div', {}, packages.length
-          ? packages.map(pkgCard)
-          : h('div', { class: 'empty-state card' }, h('div', { class: 'big' }, '📦'), h('p', {}, 'אין חבילות — צרו חבילה והוסיפו אליה מוצרים')))));
+      h('div', {}, packages.length
+        ? packages.map(pkgCard)
+        : h('div', { class: 'empty-state card' }, h('div', { class: 'big' }, '📦'), h('p', {}, 'אין חבילות — צרו חבילה והוסיפו אליה מוצרים'))));
   }
 
   const activeProducts = () => products.filter(p => p.active);
-
-  // ---- side panel: reference list of available products ----
-  function productsPanel() {
-    const items = activeProducts();
-    return h('div', { class: 'card products-panel' },
-      h('h3', {}, '🎸 מוצרים'),
-      h('p', { class: 'muted' }, 'השתמשו בכפתור "➕ הוספת מוצר" בכל אזור בחבילה כדי לצרף מוצר.'),
-      items.length ? items.map(p =>
-        h('div', { class: 'dnd-product' },
-          h('span', {}, p.name),
-          h('span', { class: 'muted' }, fmtMoney(p.default_price))))
-        : h('p', { class: 'muted' }, 'אין מוצרים פעילים — הוסיפו בטאב "מוצרים".'));
-  }
 
   // ---- package card with two "zones" ----
   function pkgCard(pkg) {

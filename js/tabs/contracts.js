@@ -2,7 +2,7 @@
 // RTL rich-text editor with {{variable}} injection + custom fields,
 // management signature, and sending to the client portal.
 import { get, post, patch, del } from '../api.js';
-import { h, toast, modal, confirmModal, fmtMoney, fmtDate, skeletonTable, withBusy } from '../ui.js';
+import { h, toast, modal, confirmModal, fmtMoney, fmtDate, skeletonTable, withBusy, comboBox } from '../ui.js';
 
 const STATUS_LABELS = {
   draft: ['טיוטה', 'stage'], sent: ['נשלח ללקוח', 'stage-form'],
@@ -76,17 +76,22 @@ export async function renderContractsTab(view) {
 
   // ---- create ----
   function openNew() {
-    const leadSel = h('select', {}, ...leads.map(l => h('option', { value: l.id }, `${l.name} (${l.sale_status})`)));
-    const pkgSel = h('select', {}, h('option', { value: '' }, '— ללא חבילה בשלב זה —'),
-      ...packages.map(p => h('option', { value: p.id }, `${p.name} · ${fmtMoney(p.base_price)}`)));
     if (!leads.length) { toast('אין לידים — צרו ליד קודם', 'error'); return; }
+    const leadCombo = comboBox(
+      leads.map(l => ({ value: l.id, label: `${l.name} (${l.sale_status})` })),
+      { placeholder: '🔍 חיפוש ליד לפי שם…', empty: '' });
+    const pkgCombo = comboBox(
+      packages.map(p => ({ value: p.id, label: `${p.name} · ${fmtMoney(p.base_price)}` })),
+      { placeholder: '🔍 חיפוש חבילה…', empty: '— ללא חבילה בשלב זה —' });
+
     modal('חוזה חדש', h('div', {},
-      h('label', { class: 'field' }, h('span', {}, 'שיוך לליד (מעקב זוגות) *'), leadSel),
-      h('label', { class: 'field' }, h('span', {}, 'חבילה'), pkgSel)), {
+      h('label', { class: 'field' }, h('span', {}, 'שיוך לליד (מעקב זוגות) *'), leadCombo.el),
+      h('label', { class: 'field' }, h('span', {}, 'חבילה'), pkgCombo.el)), {
       actions: [
         {
           label: 'יצירה ועריכה', kind: 'primary', onclick: async (close) => {
-            const { contract } = await post('/contracts', { lead_id: leadSel.value, package_id: pkgSel.value || null });
+            if (!leadCombo.get()) { toast('יש לבחור ליד', 'error'); return false; }
+            const { contract } = await post('/contracts', { lead_id: leadCombo.get(), package_id: pkgCombo.get() || null });
             close(); reload();
             openEditor(contract);
           },
@@ -101,24 +106,18 @@ export async function renderContractsTab(view) {
     let c = contract;
     const title = h('input', { type: 'text', value: c.title });
 
-    // package selector + drag & drop target
-    const pkgSel = h('select', {},
-      h('option', { value: '' }, '— בחר חבילה —'),
-      ...packages.map(p => h('option', { value: p.id, selected: c.package_id === p.id }, `${p.name} · ${fmtMoney(p.base_price)}`)));
-    const pkgDrop = h('div', { class: 'dropzone drag-target', style: 'min-height:46px' },
-      h('div', { class: 'dz-title' }, '📦 גררו לכאן חבילה מהרשימה, או בחרו למעלה'),
+    // package selector (searchable) + drag & drop target
+    const pkgSel = comboBox(
+      packages.map(p => ({ value: p.id, label: `${p.name} · ${fmtMoney(p.base_price)}` })),
+      { value: c.package_id || '', placeholder: '🔍 חיפוש חבילה…', empty: '— ללא חבילה —' });
+    // quick-pick chips (click to attach — dragging was dropped from the product/package flow)
+    const pkgDrop = h('div', { class: 'dropzone', style: 'min-height:46px' },
+      h('div', { class: 'dz-title' }, '📦 בחירה מהירה — לחצו על חבילה, או חפשו למעלה'),
       ...packages.map(p => h('span', {
-        class: 'var-chip', draggable: true,
-        ondragstart: (e) => e.dataTransfer.setData('pkg', p.id),
+        class: 'var-chip',
+        onclick: async () => { pkgSel.set(p.id); await savePkg(p.id); },
       }, p.name)));
-    pkgDrop.addEventListener('dragover', (e) => { e.preventDefault(); pkgDrop.classList.add('over'); });
-    pkgDrop.addEventListener('dragleave', () => pkgDrop.classList.remove('over'));
-    pkgDrop.addEventListener('drop', async (e) => {
-      e.preventDefault(); pkgDrop.classList.remove('over');
-      const id = e.dataTransfer.getData('pkg');
-      if (id) { pkgSel.value = id; await savePkg(id); }
-    });
-    pkgSel.addEventListener('change', () => savePkg(pkgSel.value || null));
+    pkgSel.el.addEventListener('change', () => savePkg(pkgSel.get() || null));
     async function savePkg(id) {
       ({ contract: c } = await patch(`/contracts/${c.id}`, { package_id: id }));
       priceLine.textContent = priceText();
@@ -197,7 +196,7 @@ export async function renderContractsTab(view) {
     modal(`עריכת חוזה — ${c.lead?.name || ''}`, h('div', {},
       h('label', { class: 'field' }, h('span', {}, 'כותרת החוזה'), title),
       h('div', { class: 'grid-2' },
-        h('label', { class: 'field' }, h('span', {}, 'חבילה'), pkgSel),
+        h('label', { class: 'field' }, h('span', {}, 'חבילה'), pkgSel.el),
         h('label', { class: 'field' }, h('span', {}, 'חתימת הנהלה'), sigSel)),
       pkgDrop, priceLine,
       h('h4', {}, 'תוכן החוזה (RTL מלא)'),

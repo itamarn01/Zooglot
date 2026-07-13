@@ -2,25 +2,30 @@
 // search/filter/sort, pipelines (open/win/lost), merge, contacts, updates
 // thread, voice-note AI capture and Google Calendar sync.
 import { get, post, patch, del, upload } from '../api.js';
-import { h, toast, modal, confirmModal, debounce, fmtMoney, fmtDate, skeletonTable, withBusy } from '../ui.js';
+import { h, toast, modal, confirmModal, debounce, skeletonTable, withBusy } from '../ui.js';
 import { openImportWizard } from './import.js';
 
 const PAGE_SIZE = 100;
+const WIDTHS_KEY = 'zooglot_col_widths';
 
 const RELATIONS = ['כלה', 'חתן', 'הורה', 'מפיק/ה', 'אחר'];
 const STAGES = ['לקוח חדש ידני', 'לקוח משאלון'];
 const EVENT_TYPES = ['חתונה', 'בר/בת מצווה', 'אירוע חברה', 'אחר'];
 const HEAR = ['Instagram', 'Youtube', 'ניגנתם אצל חברים', 'המלצה', 'גוגל', 'אחר'];
 const NEXT_ACTIONS = ['עוד פרטים', 'לקבוע פגישה', 'לשלוח הצעת מחיר', 'לשלוח חוזה', 'מעקב', 'אין פעולה'];
-const SOURCES = { manual: 'ידני', form: 'טופס', webhook: 'אתר', whatsapp: 'וואטסאפ', voice: 'הקלטה' };
+const SOURCES = { manual: 'ידני', form: 'טופס', webhook: 'אתר', whatsapp: 'וואטסאפ', voice: 'הקלטה', import: 'ייבוא' };
 
-let ctx = null; // { view, state, leads, competitors, pipeline, search, sort, filters }
+let ctx = null; // { view, state, leads, competitors, pipeline, search, sort, filters, colWidths }
+
+const loadWidths = () => { try { return JSON.parse(localStorage.getItem(WIDTHS_KEY)) || {}; } catch { return {}; } };
+const saveWidths = debounce((w) => localStorage.setItem(WIDTHS_KEY, JSON.stringify(w)), 300);
 
 export async function renderLeadsTab(view, state) {
   ctx = {
     view, state, leads: [], competitors: [],
     pipeline: 'open', search: '', sort: { col: 'event_date', asc: true }, filters: {},
     limit: PAGE_SIZE,
+    colWidths: loadWidths(),
   };
   const skel = h('div', {}, skeletonTable(10));
   view.append(skel);
@@ -166,6 +171,7 @@ function draw() {
       pipeBtn('lost', `LOST (${counts.lost})`),
       pipeBtn('all', 'הכל')),
     searchInput,
+    sortControl(),
     h('div', { class: 'toolbar-actions' },
       filterControl(),
       h('button', { class: 'btn sm', onclick: openVoiceModal }, '🎙️ ליד מהקלטה'),
@@ -218,6 +224,22 @@ function pipeBtn(status, label) {
   }, label);
 }
 
+// explicit sort picker (column headers are still clickable to sort too)
+function sortControl() {
+  const sortable = columns().filter(c => !['contacts', 'readonly'].includes(c.type));
+  const sel = h('select', { style: 'max-width:190px' },
+    ...sortable.map(c => h('option', { value: c.key, selected: ctx.sort.col === c.key }, `מיון: ${c.label}`)));
+  sel.addEventListener('change', () => {
+    ctx.sort = { col: sel.value, asc: ctx.sort.asc };
+    resetPaging(); draw();
+  });
+  const dir = h('button', {
+    class: 'btn sm', title: ctx.sort.asc ? 'סדר עולה' : 'סדר יורד',
+    onclick: () => { ctx.sort.asc = !ctx.sort.asc; resetPaging(); draw(); },
+  }, ctx.sort.asc ? '▲' : '▼');
+  return h('div', { class: 'flex', style: 'gap:4px' }, sel, dir);
+}
+
 function filterControl() {
   const filterable = columns().filter(c => c.type === 'select' || c.type === 'status');
   const active = Object.keys(ctx.filters).filter(k => ctx.filters[k] !== '').length;
@@ -246,22 +268,78 @@ function filterControl() {
 }
 
 // ---------------- table ----------------
+const DEFAULT_W = 150;
+
 function buildTable(rows) {
   const cols = columns();
+  const width = (c) => ctx.colWidths[c.key] || c.width || DEFAULT_W;
+
+  // fixed layout so explicit column widths are honoured exactly
+  const colGroup = h('colgroup', {},
+    h('col', { style: 'width:44px' }),
+    ...cols.map(c => h('col', { style: `width:${width(c)}px` })),
+    h('col', { style: 'width:170px' }));
+
   const thead = h('thead', {}, h('tr', {},
     h('th', {}, ''),
-    ...cols.map(c => h('th', {
-      onclick: () => {
-        if (ctx.sort.col === c.key) ctx.sort.asc = !ctx.sort.asc;
-        else ctx.sort = { col: c.key, asc: true };
-        resetPaging();
-        draw();
-      },
-    }, c.label, ctx.sort.col === c.key ? h('span', { class: 'sort-arrow' }, ctx.sort.asc ? ' ▲' : ' ▼') : '')),
+    ...cols.map((c, i) => {
+      const th = h('th', { class: 'resizable' },
+        h('span', {
+          class: 'th-label',
+          onclick: () => {
+            if (ctx.sort.col === c.key) ctx.sort.asc = !ctx.sort.asc;
+            else ctx.sort = { col: c.key, asc: true };
+            resetPaging();
+            draw();
+          },
+        }, c.label, ctx.sort.col === c.key ? h('span', { class: 'sort-arrow' }, ctx.sort.asc ? ' ▲' : ' ▼') : ''),
+        resizeHandle(c, i + 1));
+      return th;
+    }),
     h('th', {}, 'פעולות')));
 
   const tbody = h('tbody', {}, ...rows.map(lead => buildRow(lead, cols)));
-  return h('table', { class: 'board' }, thead, tbody);
+  return h('table', { class: 'board grid' }, colGroup, thead, tbody);
+}
+
+// drag the edge of a header to resize that column; width persists in localStorage
+function resizeHandle(col, colIndex) {
+  const handle = h('span', { class: 'col-resize', title: 'גררו לשינוי רוחב · דאבל-קליק לאיפוס' });
+
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const table = handle.closest('table');
+    const colEl = table.querySelectorAll('colgroup col')[colIndex];
+    const startX = e.clientX;
+    const startW = colEl.getBoundingClientRect().width;
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add('dragging');
+
+    // RTL: dragging left (negative dx) widens the column
+    const onMove = (ev) => {
+      const dx = startX - ev.clientX;
+      const w = Math.max(70, Math.round(startW + dx));
+      colEl.style.width = `${w}px`;
+      ctx.colWidths[col.key] = w;
+    };
+    const onUp = () => {
+      handle.classList.remove('dragging');
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      saveWidths(ctx.colWidths);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+  });
+
+  handle.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    delete ctx.colWidths[col.key];
+    saveWidths(ctx.colWidths);
+    draw();
+  });
+  return handle;
 }
 
 function buildRow(lead, cols) {
@@ -271,6 +349,8 @@ function buildRow(lead, cols) {
         '💬', lead.updates_count ? h('sup', {}, lead.updates_count) : '')),
     ...cols.map(c => buildCell(lead, c)),
     h('td', {}, h('div', { class: 'row-actions' },
+      h('button', { class: 'icon-btn', title: 'כרטיס הליד (כל השדות)', onclick: () => openUpdatesDrawer(lead, 'card') }, '🪪'),
+      h('button', { class: 'icon-btn', title: 'תזכורות', onclick: () => openUpdatesDrawer(lead, 'reminders') }, '⏰'),
       h('button', { class: 'icon-btn', title: 'סנכרון ליומן Google', onclick: () => syncToCalendar(lead) }, '📅'),
       h('button', { class: 'icon-btn', title: 'הקלטה קולית לליד זה', onclick: () => openVoiceModal(lead) }, '🎙️'),
       h('button', {
@@ -285,41 +365,19 @@ function buildRow(lead, cols) {
   return tr;
 }
 
-// long-press (or long mouse-hold) on a row opens a vertical detail card —
+// long-press (or long mouse-hold) on a row opens the editable item card —
 // handy on phones where the wide board needs horizontal scrolling to see everything
 function attachLongPress(tr, lead) {
   let timer = null;
   const start = (e) => {
-    if (e.target.closest('input, select, textarea, button, a')) return;
-    timer = setTimeout(() => { timer = null; openLeadDetailCard(lead); }, 550);
+    if (e.target.closest('input, select, textarea, button, a, .col-resize')) return;
+    timer = setTimeout(() => { timer = null; openUpdatesDrawer(lead, 'card'); }, 550);
   };
   const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
   tr.addEventListener('pointerdown', start);
   tr.addEventListener('pointerup', cancel);
   tr.addEventListener('pointerleave', cancel);
   tr.addEventListener('pointercancel', cancel);
-}
-
-function openLeadDetailCard(lead) {
-  const statusLabels = { open: 'צינור ראשי', win: 'WIN 🎉', lost: 'LOST' };
-  const rows = columns().map(c => {
-    let value;
-    if (c.type === 'readonly') value = c.render(lead);
-    else if (c.type === 'contacts') value = (lead.contacts || []).map(x => x.name).join(', ') || '—';
-    else if (c.type === 'status') value = statusLabels[lead[c.key]] || '—';
-    else if (c.type === 'select') {
-      const opt = c.options.find(([v]) => String(v) === String(lead[c.key]));
-      value = opt ? opt[1] : (lead[c.key] || '—');
-    } else if (c.type === 'date') value = fmtDate(lead[c.key]);
-    else if (c.type === 'number') value = lead[c.key] != null ? fmtMoney(lead[c.key]) : '—';
-    else value = lead[c.key] || '—';
-    return h('div', { class: 'detail-row' },
-      h('span', { class: 'detail-label' }, c.label),
-      h('span', { class: 'detail-value' }, value));
-  });
-  modal(`כרטיס לקוח — ${lead.name}`, h('div', { class: 'detail-card' }, ...rows), {
-    actions: [{ label: 'סגירה', onclick: (close) => close() }],
-  });
 }
 
 function buildCell(lead, col) {
@@ -394,7 +452,7 @@ function buildCell(lead, col) {
 }
 
 // ---------------- LOST flow (hard requirement) ----------------
-function openLostModal(lead, onCancel) {
+function openLostModal(lead, onCancel, onDone) {
   const reason = h('textarea', { rows: 3, placeholder: 'למה הפסדנו את הליד?' });
   const compSel = h('select', {},
     h('option', { value: '' }, '— בחר מתחרה —'),
@@ -416,13 +474,15 @@ function openLostModal(lead, onCancel) {
             if (compSel.value === '__new__') {
               await post('/leads/meta/competitors', { name: competitor });
             }
-            await patch(`/leads/${lead.id}`, {
+            const { lead: updated } = await patch(`/leads/${lead.id}`, {
               sale_status: 'lost', lost_reason: reason.value.trim(), lost_competitor: competitor,
               close_date: new Date().toISOString().slice(0, 10),
             });
+            Object.assign(lead, updated);
             close();
             toast('הליד הועבר ל-LOST', 'success');
-            reload();
+            await reload();
+            onDone?.();
           } catch (e) { toast(e.message, 'error'); }
         },
       },
@@ -513,40 +573,227 @@ function openContactsModal(lead) {
     }, '+ הוספה')));
 }
 
-// ---------------- updates drawer ----------------
-async function openUpdatesDrawer(lead) {
-  const { updates } = await get(`/leads/${lead.id}/updates`);
+// ---------------- lead drawer: updates / item card / reminders ----------------
+async function openUpdatesDrawer(lead, initialTab = 'updates') {
+  let tab = initialTab;
   const bodyEl = h('div', { class: 'body' });
-  const renderUpdates = (items) => {
-    bodyEl.innerHTML = '';
-    if (!items.length) bodyEl.append(h('p', { class: 'muted' }, 'אין עדכונים עדיין — כתבו את הראשון!'));
-    for (const u of items) {
-      bodyEl.append(h('div', { class: `update-item ${u.kind}` },
-        h('div', { class: 'meta' }, `${u.author_name} · ${new Date(u.created_at).toLocaleString('he-IL')}`),
-        h('div', { class: 'body-text' }, u.body)));
+  const footerEl = h('footer', {});
+  const close = () => { backdrop.remove(); drawer.remove(); };
+
+  const tabsBar = h('div', { class: 'drawer-tabs' });
+  const drawTabs = () => {
+    tabsBar.innerHTML = '';
+    for (const [id, label] of [['updates', '💬 עדכונים'], ['card', '🪪 כרטיס'], ['reminders', '⏰ תזכורות']]) {
+      tabsBar.append(h('button', {
+        class: tab === id ? 'active' : '',
+        onclick: () => { tab = id; drawTabs(); renderTab(); },
+      }, label));
     }
   };
-  renderUpdates(updates);
 
-  const ta = h('textarea', { rows: 2, placeholder: 'כתבו עדכון…' });
-  const backdrop = h('div', { class: 'drawer-backdrop', onclick: () => { backdrop.remove(); drawer.remove(); } });
-  const drawer = h('aside', { class: 'drawer' },
-    h('header', {}, h('h3', { style: 'margin:0' }, `💬 ${lead.name}`),
-      h('span', { style: 'flex:1' }),
-      h('button', { class: 'icon-btn', onclick: () => { backdrop.remove(); drawer.remove(); } }, '✕')),
-    bodyEl,
-    h('footer', {}, h('div', { class: 'flex' }, ta,
+  async function renderTab() {
+    bodyEl.innerHTML = '';
+    footerEl.innerHTML = '';
+    if (tab === 'updates') await renderUpdatesTab();
+    else if (tab === 'card') renderCardTab();
+    else await renderRemindersTab();
+  }
+
+  // ---- updates thread ----
+  async function renderUpdatesTab() {
+    const { updates } = await get(`/leads/${lead.id}/updates`);
+    const paint = (items) => {
+      bodyEl.innerHTML = '';
+      if (!items.length) bodyEl.append(h('p', { class: 'muted' }, 'אין עדכונים עדיין — כתבו את הראשון!'));
+      for (const u of items) {
+        bodyEl.append(h('div', { class: `update-item ${u.kind}` },
+          h('div', { class: 'meta' }, `${u.author_name} · ${new Date(u.created_at).toLocaleString('he-IL')}`),
+          h('div', { class: 'body-text' }, u.body)));
+      }
+    };
+    paint(updates);
+
+    const ta = h('textarea', { rows: 2, placeholder: 'כתבו עדכון…' });
+    footerEl.append(h('div', { class: 'flex' }, ta,
       h('button', {
         class: 'btn primary', onclick: withBusy(async () => {
           if (!ta.value.trim()) return;
           await post(`/leads/${lead.id}/updates`, { body: ta.value });
           ta.value = '';
           const { updates: fresh } = await get(`/leads/${lead.id}/updates`);
-          renderUpdates(fresh);
+          paint(fresh);
           lead.updates_count = fresh.length;
+          draw();
         }),
-      }, 'שליחה'))));
+      }, 'שליחה')));
+  }
+
+  // ---- item card: every field, vertical, inline autosave ----
+  function renderCardTab() {
+    const save = async (key, value) => {
+      try {
+        const { lead: updated } = await patch(`/leads/${lead.id}`, { [key]: value === '' ? null : value });
+        Object.assign(lead, updated);
+        draw();
+      } catch (e) {
+        toast(e.message, 'error');
+        await reload(false);
+        draw();
+      }
+    };
+
+    const grid = h('div', { class: 'card-grid' });
+    for (const col of columns()) {
+      if (col.type === 'readonly') {
+        grid.append(h('label', { class: 'field' }, h('span', {}, col.label), h('div', {}, col.render(lead))));
+        continue;
+      }
+      if (col.type === 'contacts') {
+        grid.append(h('label', { class: 'field' }, h('span', {}, col.label),
+          h('button', { class: 'btn sm', onclick: () => openContactsModal(lead) },
+            (lead.contacts || []).length ? `👥 ${lead.contacts.map(c => c.name).join(', ')}` : '+ הוספת איש קשר')));
+        continue;
+      }
+      if (col.type === 'status') {
+        const sel = h('select', {},
+          ...[['open', 'צינור ראשי'], ['win', 'WIN 🎉'], ['lost', 'LOST']].map(([v, t]) =>
+            h('option', { value: v, selected: lead.sale_status === v }, t)));
+        sel.addEventListener('change', async () => {
+          if (sel.value === 'lost') {
+            openLostModal(lead, () => { sel.value = lead.sale_status; }, () => renderTab());
+          } else {
+            await save('sale_status', sel.value);
+            if (sel.value === 'win' && !lead.close_date) await save('close_date', new Date().toISOString().slice(0, 10));
+            renderTab();
+          }
+        });
+        grid.append(h('label', { class: 'field' }, h('span', {}, col.label), sel));
+        continue;
+      }
+      if (col.type === 'select') {
+        const sel = h('select', {},
+          h('option', { value: '' }, '—'),
+          ...col.options.map(([v, t]) => h('option', { value: v, selected: String(lead[col.key] ?? '') === String(v) }, t)));
+        sel.addEventListener('change', () => save(col.key, sel.value));
+        grid.append(h('label', { class: 'field' }, h('span', {}, col.label), sel));
+        continue;
+      }
+      const typeMap = { text: 'text', date: 'date', number: 'number', tel: 'tel', email: 'email' };
+      const input = h('input', {
+        type: typeMap[col.type] || 'text',
+        value: lead[col.key] ?? '',
+        dir: ['tel', 'email', 'number'].includes(col.type) ? 'ltr' : 'rtl',
+      });
+      input.addEventListener('change', () =>
+        save(col.key, col.type === 'number' ? (input.value === '' ? null : Number(input.value)) : input.value));
+      grid.append(h('label', { class: 'field' }, h('span', {}, col.label), input));
+    }
+    bodyEl.append(h('p', { class: 'muted' }, 'כל שינוי נשמר אוטומטית.'), grid);
+  }
+
+  // ---- reminders ----
+  async function renderRemindersTab() {
+    const { reminders } = await get(`/leads/${lead.id}/reminders`);
+    const owner = ctx.state.team.find(t => t.id === lead.owner_id);
+
+    bodyEl.append(h('p', { class: 'muted' },
+      owner ? `התזכורת תישלח כברירת מחדל ל-${owner.full_name || owner.email} (בטיפול).`
+        : '⚠️ לליד אין איש צוות מטפל — בחרו נמען לתזכורת.'));
+
+    if (!reminders.length) bodyEl.append(h('p', { class: 'muted' }, 'אין תזכורות לליד הזה.'));
+    for (const r of reminders) {
+      const when = new Date(r.remind_at).toLocaleString('he-IL');
+      const statusLabel = { pending: '⏳ ממתינה', sent: '✅ נשלחה', failed: '❌ נכשלה', cancelled: 'בוטלה' }[r.status] || r.status;
+      bodyEl.append(h('div', { class: `reminder-item ${r.status}` },
+        h('div', { class: 'flex between' },
+          h('b', {}, `${r.channel === 'email' ? '📧 מייל' : '📱 וואטסאפ'} · ${when}`),
+          h('button', {
+            class: 'icon-btn', title: 'מחיקה', onclick: async () => {
+              await del(`/leads/${lead.id}/reminders/${r.id}`);
+              renderTab();
+            },
+          }, '🗑️')),
+        r.message ? h('div', {}, r.message) : null,
+        h('div', { class: 'meta' }, `${statusLabel} · ל-${r.recipient_name || '—'}`),
+        r.error ? h('div', { class: 'meta', style: 'color:var(--danger)' }, r.error) : null));
+    }
+
+    footerEl.append(h('button', {
+      class: 'btn primary', style: 'width:100%',
+      onclick: () => openReminderModal(lead, () => renderTab()),
+    }, '+ תזכורת חדשה'));
+  }
+
+  const backdrop = h('div', { class: 'drawer-backdrop', onclick: close });
+  const drawer = h('aside', { class: 'drawer' },
+    h('header', {},
+      h('h3', { style: 'margin:0;font-size:16px' }, lead.name),
+      h('span', { style: 'flex:1' }),
+      h('button', { class: 'icon-btn', onclick: close }, '✕')),
+    tabsBar, bodyEl, footerEl);
+
   document.body.append(backdrop, drawer);
+  drawTabs();
+  await renderTab();
+}
+
+// ---------------- reminder composer ----------------
+function openReminderModal(lead, onSaved) {
+  const team = ctx.state.team;
+  const channel = h('select', {},
+    h('option', { value: 'email' }, '📧 מייל'),
+    h('option', { value: 'whatsapp' }, '📱 וואטסאפ'));
+  const recipient = h('select', {},
+    ...team.map(t => h('option', {
+      value: t.id, selected: t.id === lead.owner_id,
+    }, `${t.full_name || t.email}${t.phone ? '' : ' (ללא טלפון)'}`)));
+
+  // default: tomorrow at 09:00, formatted for datetime-local
+  const d = new Date(Date.now() + 24 * 3600 * 1000);
+  d.setHours(9, 0, 0, 0);
+  const pad = (n) => String(n).padStart(2, '0');
+  const local = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const when = h('input', { type: 'datetime-local', value: local });
+  const message = h('textarea', { rows: 3, placeholder: `למשל: להתקשר ל${lead.contact_name || lead.name} בנוגע להצעת המחיר` });
+
+  const warn = h('p', { class: 'muted' });
+  const syncWarn = () => {
+    const p = team.find(t => t.id === recipient.value);
+    warn.textContent = (channel.value === 'whatsapp' && p && !p.phone)
+      ? `⚠️ ל-${p.full_name || p.email} אין מספר וואטסאפ בפרופיל — יש להוסיף בהגדרות → פרופיל.`
+      : '';
+  };
+  channel.addEventListener('change', syncWarn);
+  recipient.addEventListener('change', syncWarn);
+  syncWarn();
+
+  modal(`⏰ תזכורת חדשה — ${lead.name}`, h('div', {},
+    h('div', { class: 'grid-2' },
+      h('label', { class: 'field' }, h('span', {}, 'ערוץ שליחה'), channel),
+      h('label', { class: 'field' }, h('span', {}, 'למי לשלוח (מטפל האירוע)'), recipient)),
+    h('label', { class: 'field' }, h('span', {}, 'מתי *'), when),
+    h('label', { class: 'field' }, h('span', {}, 'תוכן התזכורת'), message),
+    warn), {
+    actions: [
+      {
+        label: 'קביעת תזכורת', kind: 'primary', onclick: async (close) => {
+          if (!when.value) { toast('יש לבחור תאריך ושעה', 'error'); return false; }
+          try {
+            await post(`/leads/${lead.id}/reminders`, {
+              channel: channel.value,
+              remind_at: new Date(when.value).toISOString(),
+              message: message.value,
+              recipient_id: recipient.value,
+            });
+            close();
+            toast('התזכורת נקבעה ✓', 'success');
+            onSaved?.();
+          } catch (e) { toast(e.message, 'error'); return false; }
+        },
+      },
+      { label: 'ביטול', onclick: (close) => close() },
+    ],
+  });
 }
 
 // ---------------- merge ----------------
