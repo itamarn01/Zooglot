@@ -253,17 +253,27 @@ export async function openImportWizard(onDone) {
     const stat = (n, label, color) => h('div', { class: 'card stat-tile', style: 'padding:14px' },
       h('div', { class: 'num', style: `font-size:26px${color ? `;color:${color}` : ''}` }, String(n ?? 0)),
       h('div', { class: 'lbl' }, label));
+    const errorsCard = (errors) => (errors && errors.length)
+      ? h('div', { class: 'card mt' },
+        h('p', { style: 'color:var(--danger);font-weight:700' }, `⚠️ סיבות הכשלון (${errors.length}${errors.length >= 20 ? '+' : ''}):`),
+        h('div', { class: 'wiz-table-wrap' }, h('table', { class: 'wiz-table' },
+          h('thead', {}, h('tr', {}, h('th', {}, 'שורה'), h('th', {}, 'שם'), h('th', {}, 'סיבה'))),
+          h('tbody', {}, ...errors.map(e => h('tr', {},
+            h('td', {}, String(e.row)), h('td', {}, e.name || '—'), h('td', {}, e.reason)))))))
+      : null;
+
     if (state.mode === 'leads') {
       body.append(
-        h('h4', {}, '✅ הייבוא הושלם'),
+        h('h4', {}, r.failed ? '⚠️ הייבוא הסתיים עם שגיאות' : '✅ הייבוא הושלם'),
         h('div', { class: 'grid-4' },
           stat(r.created, 'נוצרו', 'var(--win)'),
           stat(r.updated, 'עודכנו', 'var(--accent-cyan)'),
           stat(r.skipped, 'דולגו'),
-          stat(r.failed, 'נכשלו', r.failed ? 'var(--danger)' : null)));
+          stat(r.failed, 'נכשלו', r.failed ? 'var(--danger)' : null)),
+        errorsCard(r.errors));
     } else {
       body.append(
-        h('h4', {}, '✅ ייבוא העדכונים הושלם'),
+        h('h4', {}, r.failed ? '⚠️ ייבוא העדכונים הסתיים עם שגיאות' : '✅ ייבוא העדכונים הושלם'),
         h('div', { class: 'grid-3' },
           stat(r.imported, 'עדכונים יובאו', 'var(--win)'),
           stat(r.unmatched, 'ללא ליד תואם', r.unmatched ? 'var(--accent-orange)' : null),
@@ -271,7 +281,8 @@ export async function openImportWizard(onDone) {
         (r.missing && r.missing.length)
           ? h('div', { class: 'card mt' }, h('p', { class: 'muted' }, 'לא נמצא ליד תואם עבור:'),
             h('p', {}, r.missing.join(' · ')))
-          : null);
+          : null,
+        errorsCard(r.errors));
     }
     setFooter(btn('סיום', { kind: 'primary', onclick: () => { close(); onDone?.(); } }));
   }
