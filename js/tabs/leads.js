@@ -61,6 +61,8 @@ function columns() {
     { key: 'phone1', label: 'טלפון 1', type: 'tel' },
     { key: 'phone2', label: 'טלפון 2', type: 'tel' },
     { key: 'email', label: 'מייל', type: 'email' },
+    { key: 'id_number', label: 'ת"ז', type: 'text' },
+    { key: 'address', label: 'כתובת', type: 'text' },
     { key: 'proposed_price', label: 'מחיר שהוצע', type: 'number' },
     { key: 'stage', label: 'שלב', type: 'select', options: STAGES.map(x => [x, x]), chip: 'stage' },
     { key: 'sale_status', label: 'סטאטוס מכירה', type: 'status' },
@@ -533,9 +535,11 @@ function openContactsModal(lead) {
     list.innerHTML = '';
     if (!(lead.contacts || []).length) list.append(h('p', { class: 'muted' }, 'אין אנשי קשר נוספים עדיין.'));
     for (const c of lead.contacts || []) {
-      list.append(h('div', { class: 'pkg-item' },
+      list.append(h('div', { class: 'pkg-item', style: 'flex-wrap:wrap' },
         h('b', {}, c.name), c.role ? h('span', { class: 'chip stage' }, c.role) : '',
         h('span', { dir: 'ltr' }, c.phone || ''), h('span', { dir: 'ltr' }, c.email || ''),
+        c.id_number ? h('span', { class: 'muted' }, `ת"ז ${c.id_number}`) : '',
+        c.address ? h('span', { class: 'muted' }, c.address) : '',
         h('span', { style: 'flex:1' }),
         h('button', {
           class: 'icon-btn', onclick: async () => {
@@ -552,21 +556,25 @@ function openContactsModal(lead) {
   const role = h('input', { type: 'text', placeholder: 'תפקיד/קרבה' });
   const phone = h('input', { type: 'tel', placeholder: 'טלפון', dir: 'ltr' });
   const email = h('input', { type: 'email', placeholder: 'מייל', dir: 'ltr' });
+  const idNumber = h('input', { type: 'text', placeholder: 'ת"ז', dir: 'ltr' });
+  const address = h('input', { type: 'text', placeholder: 'כתובת' });
 
   modal(`אנשי קשר — ${lead.name}`, h('div', {},
     list,
     h('h4', { class: 'mt' }, 'הוספת איש קשר'),
     h('div', { class: 'grid-2' },
       h('label', { class: 'field' }, name), h('label', { class: 'field' }, role),
-      h('label', { class: 'field' }, phone), h('label', { class: 'field' }, email)),
+      h('label', { class: 'field' }, phone), h('label', { class: 'field' }, email),
+      h('label', { class: 'field' }, idNumber), h('label', { class: 'field' }, address)),
     h('button', {
       class: 'btn primary', onclick: withBusy(async () => {
         if (!name.value.trim()) { toast('שם איש קשר חובה', 'error'); return; }
         const { contact } = await post(`/leads/${lead.id}/contacts`, {
           name: name.value, role: role.value, phone: phone.value, email: email.value,
+          id_number: idNumber.value, address: address.value,
         });
         lead.contacts = [...(lead.contacts || []), contact];
-        name.value = role.value = phone.value = email.value = '';
+        name.value = role.value = phone.value = email.value = idNumber.value = address.value = '';
         renderList();
         draw();
       }),

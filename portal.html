@@ -17,10 +17,47 @@
     .portal-head { text-align: center; padding: 24px 0 8px; }
     .portal-head .logo { height: 72px; }
     .contract-paper {
-      background: #fff; color: #16232a; border-radius: 14px; padding: 32px clamp(18px, 5vw, 44px);
-      box-shadow: var(--shadow); line-height: 1.8;
+      background: #fff; color: #16232a; border-radius: 14px; padding: 0 0 32px;
+      box-shadow: var(--shadow); line-height: 1.8; overflow: hidden;
     }
     .contract-paper h2, .contract-paper h3 { color: #0b2830; font-family: var(--font-head); }
+    .contract-paper > *:not(.prop-head) { margin-inline: clamp(18px, 5vw, 44px); }
+
+    /* ---- PDF-style proposal (mirrors the KOLOT price proposal) ---- */
+    .prop-head {
+      position: relative; padding: 22px clamp(18px, 5vw, 44px);
+      display: flex; align-items: flex-start; justify-content: space-between;
+      background: #eef7fa; margin-bottom: 18px;
+    }
+    .prop-head-tri { position: absolute; inset: 0 0 auto 0; height: 0; }
+    .prop-head-tri::before {
+      content: ""; position: absolute; top: 0; inset-inline-start: 0;
+      border-block-start: 96px solid #86cdde;
+      border-inline-end: 150px solid transparent;
+    }
+    .prop-head-info { position: relative; z-index: 2; font-size: 13px; color: #0b2830; font-weight: 600; }
+    .prop-logo { position: relative; z-index: 2; height: 56px; }
+    .prop-title { text-align: center; color: #0b2830; font-size: clamp(24px, 5vw, 34px); margin: 6px 0 2px; letter-spacing: .5px; }
+    .prop-event { text-align: center; color: #4b6068; font-weight: 600; margin-top: 0; }
+    .prop-intro { color: #2a3b42; }
+
+    .prop-sections { margin-top: 12px; border-top: 1px solid #e4ebee; }
+    .prop-section { display: grid; grid-template-columns: 160px 1fr; gap: 14px; padding: 16px 0; border-bottom: 1px solid #e4ebee; }
+    .prop-section-label { color: #6b7c83; font-family: var(--font-head); font-size: 19px; }
+    .prop-section-name { font-weight: 800; color: #0b2830; }
+    .prop-section-details { color: #33454c; white-space: pre-line; }
+    @media (max-width: 560px) { .prop-section { grid-template-columns: 1fr; gap: 4px; } }
+
+    .prop-package { margin-top: 14px; }
+    .prop-inc { padding: 4px 0; }
+    .prop-price {
+      margin-top: 18px; background: #0b2830; color: #f7c11e;
+      border-radius: 10px; padding: 14px 18px; text-align: center;
+      font-family: var(--font-head); font-size: 22px; font-weight: 800;
+    }
+    .prop-terms { margin-top: 22px; padding-top: 14px; border-top: 2px solid #0b2830; color: #33454c; }
+    .prop-field { padding: 3px 0; }
+
     .opt-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; background: var(--bg-soft); }
     .opt-row input { width: auto; }
     .price-banner {
@@ -30,6 +67,14 @@
       font-family: var(--font-head); font-size: 20px; box-shadow: var(--shadow);
     }
     .sig-img { max-height: 70px; background: #fff; border-radius: 8px; padding: 4px 10px; }
+
+    /* interactive cards live inside the white paper → keep them light (and PDF-safe) */
+    .proposal .card { background: #fff; color: #16232a; border: 1px solid #e4ebee; box-shadow: none; }
+    .proposal .card h3 { color: #0b2830; }
+    .proposal .field span { color: #4b6068; }
+    .proposal input, .proposal textarea, .proposal select { background: #fff; color: #16232a; border: 1px solid #cdd8dc; }
+    .proposal .muted { color: #6b7c83; }
+    .proposal .opt-row { background: #f6fafb; border-color: #e4ebee; }
   </style>
 </head>
 <body>
@@ -41,6 +86,7 @@
   </div>
   <div id="toasts" aria-live="polite"></div>
   <script>window.__API_BASE__ = 'https://zooglot-backend.up.railway.app';</script>
+  <script src="/vendor/html2pdf.bundle.min.js"></script>
   <script type="module" src="/js/portal.js"></script>
 </body>
 </html>
