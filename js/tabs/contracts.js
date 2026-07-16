@@ -314,11 +314,12 @@ export async function renderContractsTab(view) {
         h('label', { class: 'field' }, h('span', {}, 'תיאור (ניתן לעיצוב)'), richField(it, 'desc_html', 'desc_dir', { placeholder: 'תיאור המוצר' })));
     }
 
-    function addSection(type) {
+    function addSection(type, index) {
       const base = { id: sid(), type, dir: null };
       if (type === 'products') Object.assign(base, { title_html: '', title_dir: null, items: [] });
       else base.html = '';
-      c.sections.push(base);
+      if (typeof index === 'number' && index >= 0 && index <= c.sections.length) c.sections.splice(index, 0, base);
+      else c.sections.push(base);
       scheduleSave(); drawSections();
     }
 
@@ -459,9 +460,24 @@ export async function renderContractsTab(view) {
     const priceLine = h('p', { class: 'muted' }, priceText());
     const sendEmail = h('input', { type: 'email', dir: 'ltr', placeholder: c.lead?.email || 'מייל הלקוח', value: c.lead?.email || '' });
 
-    // ---- live preview ----
-    const previewFrame = h('iframe', { class: 'ce-frame', src: `/portal.html?t=${c.client_token}` });
-    const refreshPreview = debounce(() => { try { previewFrame.contentWindow.location.reload(); } catch { previewFrame.src = `/portal.html?t=${c.client_token}&_=${Date.now()}`; } }, 900);
+    // ---- live preview (edit=1 → shows floating "+ add section" points) ----
+    const previewFrame = h('iframe', { class: 'ce-frame', src: `/portal.html?t=${c.client_token}&edit=1` });
+    const reloadFrame = () => { try { previewFrame.contentWindow.location.reload(); } catch { previewFrame.src = `/portal.html?t=${c.client_token}&edit=1&_=${Date.now()}`; } };
+    const refreshPreview = debounce(reloadFrame, 900);
+
+    // insert a section from the preview's floating "+" menu (postMessage)
+    async function onPreviewMessage(e) {
+      if (!previewFrame.isConnected) { window.removeEventListener('message', onPreviewMessage); return; }
+      if (e.origin !== location.origin) return;
+      const d = e.data || {};
+      if (d.source !== 'zooglot-preview' || d.token !== c.client_token) return;
+      if (d.action === 'add-section') {
+        addSection(d.sectionType, d.index);
+        await saveAll();
+        reloadFrame();
+      }
+    }
+    window.addEventListener('message', onPreviewMessage);
 
     // ---- persistence ----
     const scheduleSave = debounce(async () => { await saveAll(); refreshPreview(); }, 700);
@@ -513,8 +529,8 @@ export async function renderContractsTab(view) {
     modal(`עריכת הצעה — ${c.lead?.name || ''}`, h('div', { class: 'contract-editor' }, buildPane, previewPane), {
       wide: true,
       actions: [
-        { label: '💾 שמירה', kind: 'primary', onclick: async (close) => { await saveAll(); toast('נשמר ✓', 'success'); close(); reload(); } },
-        { label: 'סגירה', onclick: (close) => { close(); reload(); } },
+        { label: '💾 שמירה', kind: 'primary', onclick: async (close) => { await saveAll(); window.removeEventListener('message', onPreviewMessage); toast('נשמר ✓', 'success'); close(); reload(); } },
+        { label: 'סגירה', onclick: (close) => { window.removeEventListener('message', onPreviewMessage); close(); reload(); } },
       ],
     });
 

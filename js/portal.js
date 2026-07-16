@@ -5,7 +5,11 @@
 import { h, toast, signaturePad, fmtMoney } from './ui.js';
 
 const API_BASE = window.__API_BASE__ || '';
-const token = new URLSearchParams(location.search).get('t');
+const params = new URLSearchParams(location.search);
+const token = params.get('t');
+// preview-only: when embedded in the editor iframe, show floating "+" controls
+// that ask the parent editor to insert a section at a position.
+const editMode = params.get('edit') === '1';
 const root = document.getElementById('portal');
 
 const STR = {
@@ -191,6 +195,23 @@ function downloadPdf() {
   }).from(el).save();
 }
 
+// floating "+ add section here" control (preview/edit mode only)
+function addPoint(index) {
+  if (!editMode) return null;
+  const menu = h('div', { class: 'edit-add-menu' },
+    ...[['title', '🔠 כותרת'], ['text', '📝 טקסט'], ['products', '🎼 מוצרים']].map(([type, lbl]) =>
+      h('button', {
+        class: 'btn sm',
+        onmousedown: (e) => {
+          e.preventDefault();
+          window.parent?.postMessage({ source: 'zooglot-preview', action: 'add-section', token, index, sectionType: type }, location.origin);
+          menu.classList.remove('open');
+        },
+      }, lbl)));
+  const btn = h('button', { class: 'edit-add-btn', title: 'הוספת סקשן כאן', onclick: () => menu.classList.toggle('open') }, '➕');
+  return h('div', { class: 'edit-add no-print' }, btn, menu);
+}
+
 function draw() {
   root.innerHTML = '';
   const signed = !!contract.client_signed_at;
@@ -200,10 +221,14 @@ function draw() {
   const priceSummary = h('div', { class: 'prop-price' }, `${t.total}: ${fmtMoney(contract.final_price)}`);
   const onChange = () => draw();
 
+  const secs = contract.resolved_sections || [];
+  const secEls = [addPoint(0)];
+  secs.forEach((s, i) => { secEls.push(renderSection(s, signed, onChange), addPoint(i + 1)); });
+
   const doc = h('div', { class: 'contract-paper proposal', id: 'proposal-doc', dir },
     headerBand(),
     eventLine(),
-    ...(contract.resolved_sections || []).map(s => renderSection(s, signed, onChange)),
+    ...secEls,
     fieldsBlock(signed),
     priceSummary,
     // legacy fallback for very old contracts that only had body_html
