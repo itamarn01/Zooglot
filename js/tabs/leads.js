@@ -4,6 +4,7 @@
 import { get, post, patch, del, upload } from '../api.js';
 import { h, toast, modal, confirmModal, debounce, skeletonTable, withBusy } from '../ui.js';
 import { openImportWizard } from './import.js';
+import { formatPhone, sanitizePhone } from '../phone.js';
 
 const PAGE_SIZE = 100;
 const WIDTHS_KEY = 'zooglot_col_widths';
@@ -26,6 +27,7 @@ export async function renderLeadsTab(view, state) {
     pipeline: 'open', search: '', sort: { col: 'event_date', asc: true }, filters: {},
     limit: PAGE_SIZE,
     colWidths: loadWidths(),
+    selected: new Set(),
   };
   const skel = h('div', {}, skeletonTable(10));
   view.append(skel);
@@ -35,7 +37,7 @@ export async function renderLeadsTab(view, state) {
 }
 
 // reset pagination whenever the visible set changes (pipeline/search/filter/sort)
-function resetPaging() { ctx.limit = PAGE_SIZE; }
+function resetPaging() { ctx.limit = PAGE_SIZE; ctx.selected.clear(); }
 
 async function reload(redraw = true) {
   const [{ leads }, { competitors }] = await Promise.all([
@@ -196,6 +198,9 @@ function draw() {
   const shown = rows.slice(0, ctx.limit);
   host.append(toolbar);
 
+  const selBar = selectionBar();
+  if (selBar) host.append(selBar);
+
   if (!rows.length) {
     host.append(h('div', { class: 'empty-state' }, h('div', { class: 'big' }, '🎷'), h('p', {}, 'אין לידים בתצוגה הזו')));
     return;
@@ -225,6 +230,54 @@ function pipeBtn(status, label) {
     dataset: { status },
     onclick: () => { ctx.pipeline = status; resetPaging(); draw(); },
   }, label);
+}
+
+// ---------------- bulk selection (Monday-style checkboxes) ----------------
+// fields copied when duplicating a lead — same whitelist as the backend, minus
+// bookkeeping/ingestion columns that shouldn't be cloned onto a new record
+const DUP_FIELDS = [
+  'name', 'contact_name', 'event_type', 'event_date', 'event_location', 'relation',
+  'owner_id', 'team', 'email', 'phone1', 'phone2', 'id_number', 'address',
+  'proposed_price', 'deposit_amount', 'stage', 'sale_status', 'next_action',
+  'package_type', 'date_status', 'hear_about_us', 'referrer', 'came_to_see_event',
+  'seen_at_date', 'seen_at_place', 'first_contact_date', 'close_date',
+  'lost_reason', 'lost_competitor',
+];
+
+function selectionBar() {
+  const n = ctx.selected.size;
+  if (!n) return null;
+  return h('div', { class: 'selection-bar' },
+    h('b', {}, `נבחרו ${n} רשומות`),
+    h('span', { style: 'flex:1' }),
+    h('button', { class: 'btn sm', onclick: withBusy(bulkDuplicate) }, '📄 שכפול'),
+    h('button', { class: 'btn sm danger', onclick: withBusy(bulkDelete) }, '🗑️ מחיקה'),
+    h('button', { class: 'btn sm', onclick: () => { ctx.selected.clear(); draw(); } }, '✕ ביטול בחירה'));
+}
+
+async function bulkDelete() {
+  const ids = [...ctx.selected];
+  if (!ids.length) return;
+  if (!await confirmModal('מחיקת רשומות', `למחוק ${ids.length} רשומות שנבחרו? הפעולה אינה הפיכה.`)) return;
+  await Promise.all(ids.map(id => del(`/leads/${id}`)));
+  ctx.selected.clear();
+  toast('הרשומות נמחקו', 'success');
+  reload();
+}
+
+async function bulkDuplicate() {
+  const ids = [...ctx.selected];
+  if (!ids.length) return;
+  const leads = ctx.leads.filter(l => ids.includes(l.id));
+  await Promise.all(leads.map((l) => {
+    const data = {};
+    for (const f of DUP_FIELDS) if (l[f] !== undefined) data[f] = l[f];
+    data.name = `${l.name} (עותק)`;
+    return post('/leads', data);
+  }));
+  ctx.selected.clear();
+  toast(`${leads.length} רשומות שוכפלו ✓`, 'success');
+  reload();
 }
 
 // explicit sort picker (column headers are still clickable to sort too)
@@ -272,21 +325,35 @@ function filterControl() {
 
 // ---------------- table ----------------
 const DEFAULT_W = 150;
+const CHECKBOX_COL_W = 38;
 
 function buildTable(rows) {
   const cols = columns();
   const width = (c) => ctx.colWidths[c.key] || c.width || DEFAULT_W;
 
-  // fixed layout so explicit column widths are honoured exactly
+  // fixed layout so explicit column widths are honoured exactly.
+  // colgroup indices shift by 1 vs. `cols` because of the leading checkbox column.
   const colGroup = h('colgroup', {},
-    h('col', { style: 'width:44px' }),
+    h('col', { style: `width:${CHECKBOX_COL_W}px` }),
     ...cols.map(c => h('col', { style: `width:${width(c)}px` })),
     h('col', { style: 'width:170px' }));
 
+  const allSelected = rows.length > 0 && rows.every(l => ctx.selected.has(l.id));
+  const selectAllCb = h('input', {
+    type: 'checkbox', checked: allSelected,
+    onclick: (e) => {
+      if (e.target.checked) rows.forEach(l => ctx.selected.add(l.id));
+      else rows.forEach(l => ctx.selected.delete(l.id));
+      draw();
+    },
+  });
+
   const thead = h('thead', {}, h('tr', {},
-    h('th', {}, ''),
+    h('th', { class: 'checkbox-col sticky-col-1' }, selectAllCb),
     ...cols.map((c, i) => {
-      const th = h('th', { class: 'resizable' },
+      const th = h('th', {
+        class: `resizable${i === 0 ? ' sticky-col-2' : ''}`,
+      },
         h('span', {
           class: 'th-label',
           onclick: () => {
@@ -346,11 +413,20 @@ function resizeHandle(col, colIndex) {
 }
 
 function buildRow(lead, cols) {
-  const tr = h('tr', { dataset: { id: lead.id } },
-    h('td', {},
-      h('button', { class: 'icon-btn', title: 'עדכונים ותכתובת', onclick: () => openUpdatesDrawer(lead) },
-        '💬', lead.updates_count ? h('sup', {}, lead.updates_count) : '')),
-    ...cols.map(c => buildCell(lead, c)),
+  const selectCb = h('input', {
+    type: 'checkbox', checked: ctx.selected.has(lead.id),
+    onclick: (e) => {
+      e.stopPropagation();
+      e.target.checked ? ctx.selected.add(lead.id) : ctx.selected.delete(lead.id);
+      draw();
+    },
+  });
+  const tr = h('tr', {
+    dataset: { id: lead.id },
+    class: ctx.selected.has(lead.id) ? 'row-selected' : '',
+  },
+    h('td', { class: 'checkbox-col sticky-col-1' }, selectCb),
+    ...cols.map((c, i) => i === 0 ? buildNameCell(lead, c) : buildCell(lead, c)),
     h('td', {}, h('div', { class: 'row-actions' },
       h('button', { class: 'icon-btn', title: 'כרטיס הליד (כל השדות)', onclick: () => openUpdatesDrawer(lead, 'card') }, '🪪'),
       h('button', { class: 'icon-btn', title: 'תזכורות', onclick: () => openUpdatesDrawer(lead, 'reminders') }, '⏰'),
@@ -368,6 +444,19 @@ function buildRow(lead, cols) {
   return tr;
 }
 
+// name column doubles as the 💬 updates entry point and stays pinned (with
+// the checkbox column) while scrolling horizontally, so it's always clear
+// which lead the visible fields belong to.
+function buildNameCell(lead, col) {
+  const td = buildCell(lead, col);
+  td.classList.add('name-cell', 'sticky-col-2');
+  td.prepend(h('button', {
+    class: 'icon-btn updates-inline', title: 'עדכונים ותכתובת',
+    onclick: (e) => { e.stopPropagation(); openUpdatesDrawer(lead); },
+  }, '💬', lead.updates_count ? h('sup', {}, lead.updates_count) : ''));
+  return td;
+}
+
 // long-press (or long mouse-hold) on a row opens the editable item card —
 // handy on phones where the wide board needs horizontal scrolling to see everything
 function attachLongPress(tr, lead) {
@@ -381,6 +470,29 @@ function attachLongPress(tr, lead) {
   tr.addEventListener('pointerup', cancel);
   tr.addEventListener('pointerleave', cancel);
   tr.addEventListener('pointercancel', cancel);
+}
+
+// phone cell: shows a country flag + dash-formatted number, but switches to
+// raw digits while focused so typing/selecting/copying never includes the
+// display dashes. `onSave(rawValue)` is called on blur when the value changed.
+function telCell(value, onSave) {
+  let current = value || '';
+  const refresh = () => {
+    const { flag, display } = formatPhone(current);
+    flagEl.textContent = flag || '📞';
+    input.value = display || current;
+  };
+  const flagEl = h('span', { class: 'tel-flag' });
+  const input = h('input', { class: 'cell-edit', type: 'tel', dir: 'ltr' });
+  refresh();
+  input.addEventListener('focus', () => { input.value = current; });
+  input.addEventListener('blur', refresh);
+  input.addEventListener('change', async () => {
+    current = sanitizePhone(input.value);
+    await onSave(current);
+    refresh();
+  });
+  return h('div', { class: 'tel-cell' }, flagEl, input);
 }
 
 function buildCell(lead, col) {
@@ -441,6 +553,8 @@ function buildCell(lead, col) {
     } else td.append(sel);
     return td;
   }
+
+  if (col.type === 'tel') { td.append(telCell(lead[col.key] ?? '', save)); return td; }
 
   const typeMap = { text: 'text', date: 'date', number: 'number', tel: 'tel', email: 'email' };
   const input = h('input', {
@@ -685,6 +799,10 @@ async function openUpdatesDrawer(lead, initialTab = 'updates') {
           ...col.options.map(([v, t]) => h('option', { value: v, selected: String(lead[col.key] ?? '') === String(v) }, t)));
         sel.addEventListener('change', () => save(col.key, sel.value));
         grid.append(h('label', { class: 'field' }, h('span', {}, col.label), sel));
+        continue;
+      }
+      if (col.type === 'tel') {
+        grid.append(h('label', { class: 'field' }, h('span', {}, col.label), telCell(lead[col.key] ?? '', (v) => save(col.key, v))));
         continue;
       }
       const typeMap = { text: 'text', date: 'date', number: 'number', tel: 'tel', email: 'email' };
