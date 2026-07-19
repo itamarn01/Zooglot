@@ -64,6 +64,7 @@ function columns() {
     { key: 'id_number', label: 'ת"ז', type: 'text' },
     { key: 'address', label: 'כתובת', type: 'text' },
     { key: 'proposed_price', label: 'מחיר שהוצע', type: 'number' },
+    { key: 'deposit_amount', label: 'מקדמה', type: 'number' },
     { key: 'stage', label: 'שלב', type: 'select', options: STAGES.map(x => [x, x]), chip: 'stage' },
     { key: 'sale_status', label: 'סטאטוס מכירה', type: 'status' },
     { key: 'next_action', label: 'פעולה הבאה', type: 'select', options: NEXT_ACTIONS.map(x => [x, x]) },

@@ -22,7 +22,7 @@ const LEAD_VARS = [
   ['name', 'שם הליד'], ['contact_name', 'איש קשר'], ['event_date', 'תאריך אירוע'],
   ['event_location', 'מיקום'], ['event_type', 'סוג אירוע'], ['email', 'מייל'],
   ['phone1', 'טלפון'], ['id_number', 'ת"ז'], ['address', 'כתובת'],
-  ['final_price', 'מחיר סופי'], ['base_price', 'מחיר בסיס'], ['deposit', 'מקדמה (10%)'],
+  ['final_price', 'מחיר סופי'], ['base_price', 'מחיר בסיס'], ['deposit', 'מקדמה'],
   ['package_type', 'שם החבילה'], ['today', 'תאריך היום'],
 ];
 
@@ -287,23 +287,26 @@ export async function renderContractsTab(view) {
           }, '🗑️')));
 
       if (s.type === 'title') {
-        return h('div', { class: 'section-edit' }, head, richField(s, 'html', 'dir', { placeholder: 'כותרת (למשל: החתונה של…)', cls: 'as-title' }));
+        return h('div', { class: 'section-edit', dataset: { sid: s.id } }, head, richField(s, 'html', 'dir', { placeholder: 'כותרת (למשל: החתונה של…)', cls: 'as-title' }));
       }
       if (s.type === 'text') {
         const cols = h('input', { type: 'checkbox', checked: s.cols === 2 });
         cols.addEventListener('change', () => { s.cols = cols.checked ? 2 : 1; scheduleSave(); });
-        return h('div', { class: 'section-edit' }, head,
+        return h('div', { class: 'section-edit', dataset: { sid: s.id } }, head,
           richField(s, 'html', 'dir', { placeholder: 'טקסט חופשי…' }),
           h('label', { class: 'field-check', style: 'margin-top:6px' }, cols, h('span', {}, '🗂️ פיצול ל-2 טורים')));
       }
       if (s.type === 'side') {
-        return h('div', { class: 'section-edit' }, head,
+        const scols = h('input', { type: 'checkbox', checked: s.cols === 2 });
+        scols.addEventListener('change', () => { s.cols = scols.checked ? 2 : 1; scheduleSave(); });
+        return h('div', { class: 'section-edit', dataset: { sid: s.id } }, head,
           h('label', { class: 'field' }, h('span', {}, 'כותרת צדדית'), richField(s, 'title_html', 'title_dir', { placeholder: 'למשל: קבלת פנים', cls: 'as-label' })),
-          h('label', { class: 'field' }, h('span', {}, 'טקסט'), richField(s, 'html', 'dir', { placeholder: 'תיאור…' })));
+          h('label', { class: 'field' }, h('span', {}, 'טקסט'), richField(s, 'html', 'dir', { placeholder: 'תיאור…' })),
+          h('label', { class: 'field-check', style: 'margin-top:6px' }, scols, h('span', {}, '🗂️ פיצול הטקסט ל-2 טורים')));
       }
       if (s.type === 'fields') {
         drawFields();
-        return h('div', { class: 'section-edit' }, head,
+        return h('div', { class: 'section-edit', dataset: { sid: s.id } }, head,
           h('p', { class: 'muted', style: 'font-size:12px;margin:4px 0' }, 'הבלוק הזה נראה ללקוח במיקום הזה. גררו למעלה/למטה כדי לשנות מיקום.'),
           fieldsBox);
       }
@@ -321,8 +324,11 @@ export async function renderContractsTab(view) {
           },
         }, '➕ הוספת מוצר לסקשן'));
       };
-      const card = h('div', { class: 'section-edit' }, head,
+      const pcols = h('input', { type: 'checkbox', checked: s.cols === 2 });
+      pcols.addEventListener('change', () => { s.cols = pcols.checked ? 2 : 1; scheduleSave(); });
+      const card = h('div', { class: 'section-edit', dataset: { sid: s.id } }, head,
         h('label', { class: 'field' }, h('span', {}, 'כותרת הסקשן'), richField(s, 'title_html', 'title_dir', { placeholder: 'למשל: קבלת פנים', cls: 'as-label' })),
+        h('label', { class: 'field-check', style: 'margin:2px 0 6px' }, pcols, h('span', {}, '🗂️ הצגת המוצרים ב-2 טורים')),
         itemsBox);
       drawItems();
       return card;
@@ -519,6 +525,15 @@ export async function renderContractsTab(view) {
         addSection(d.sectionType, d.index);
         await saveAll();
         reloadFrame();
+      } else if (d.action === 'focus-section') {
+        const card = buildPane.querySelector(`.section-edit[data-sid="${CSS.escape(d.id)}"]`);
+        if (card) {
+          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          card.classList.add('flash');
+          setTimeout(() => card.classList.remove('flash'), 1200);
+          const rf = card.querySelector('.rich');
+          if (rf) setTimeout(() => rf.focus(), 350);
+        }
       }
     }
     window.addEventListener('message', onPreviewMessage);

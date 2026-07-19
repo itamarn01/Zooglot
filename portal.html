@@ -71,6 +71,14 @@
     .pp-desc { color: #33454c; }
     .pp-desc :is(p) { margin: 2px 0; }
     .pp-price { color: #0b2830; white-space: nowrap; }
+    /* 2-column layouts (text split / products in two columns) */
+    .pp-text.cols2 { column-count: 2; column-gap: 20px; }
+    .prop-section-body.cols2 { display: block; column-count: 2; column-gap: 20px; }
+    .prop-section-body.cols2 .prop-prod { break-inside: avoid; margin-bottom: 10px; }
+    @media (max-width: 560px) { .pp-text.cols2, .prop-section-body.cols2 { column-count: 1; } }
+    /* preview edit mode: clicking a section jumps to it in the editor */
+    .edit-clickable { cursor: pointer; }
+    .edit-clickable:hover { outline: 2px dashed #86cdde; outline-offset: 3px; border-radius: 6px; }
     @media (max-width: 560px) { .prop-section { grid-template-columns: 1fr; gap: 6px; } }
 
     .prop-price {

@@ -89,7 +89,7 @@ function renderSection(s, signed, onChange) {
   if (s.type === 'side') {
     return h('div', { class: 'prop-section' },
       h('div', { class: 'prop-section-label', dir: s.title_dir || dir, html: s.title_html || '' }),
-      h('div', { class: 'prop-section-body' }, h('div', { class: 'pp-text', dir: s.dir || dir, html: s.html || '' })));
+      h('div', { class: 'prop-section-body' }, h('div', { class: 'pp-text' + (s.cols === 2 ? ' cols2' : ''), dir: s.dir || dir, html: s.html || '' })));
   }
   // product — two-column: side label + product lines
   const selected = new Set(contract.selected_options || []);
@@ -124,7 +124,7 @@ function renderSection(s, signed, onChange) {
   });
   return h('div', { class: 'prop-section' },
     h('div', { class: 'prop-section-label', dir: s.title_dir || dir, html: s.title_html || '' }),
-    h('div', { class: 'prop-section-body' }, ...lines));
+    h('div', { class: 'prop-section-body' + (s.cols === 2 ? ' cols2' : '') }, ...lines));
 }
 
 function fieldsBlock(signed) {
@@ -210,7 +210,7 @@ function downloadPdf() {
 function addPoint(index) {
   if (!editMode) return null;
   const menu = h('div', { class: 'edit-add-menu' },
-    ...[['title', '🔠 כותרת'], ['text', '📝 טקסט'], ['products', '🎼 מוצרים']].map(([type, lbl]) =>
+    ...[['title', '🔠 כותרת'], ['text', '📝 טקסט'], ['side', '📑 כותרת צדדית'], ['product', '🎼 מוצרים']].map(([type, lbl]) =>
       h('button', {
         class: 'btn sm',
         onmousedown: (e) => {
@@ -235,7 +235,20 @@ function draw() {
   const secs = contract.resolved_sections || [];
   const hasFieldsSection = secs.some(s => s.type === 'fields');
   const secEls = [addPoint(0)];
-  secs.forEach((s, i) => { secEls.push(renderSection(s, signed, onChange), addPoint(i + 1)); });
+  secs.forEach((s, i) => {
+    const el = renderSection(s, signed, onChange);
+    if (el) {
+      el.dataset.sid = s.id;
+      if (editMode) {
+        el.classList.add('edit-clickable');
+        el.addEventListener('click', (ev) => {
+          if (ev.target.closest('input, button, a, label, select, textarea, .edit-add')) return;
+          window.parent?.postMessage({ source: 'zooglot-preview', action: 'focus-section', token, id: s.id }, location.origin);
+        });
+      }
+    }
+    secEls.push(el, addPoint(i + 1));
+  });
 
   const doc = h('div', { class: 'contract-paper proposal', id: 'proposal-doc', dir },
     headerBand(),
