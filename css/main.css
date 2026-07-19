@@ -248,7 +248,7 @@ table.board.grid th .th-label {
   width: 100%; max-width: 620px; max-height: 90vh; overflow-y: auto; padding: 22px;
 }
 .modal.wide { max-width: 900px; }
-.modal:has(.contract-editor) { max-width: 1180px; }
+.modal:has(.contract-editor) { max-width: 96vw; width: 96vw; }
 .modal h3 { color: var(--brand); margin-bottom: 14px; }
 .modal .modal-actions { display: flex; gap: 10px; justify-content: flex-start; margin-top: 18px; }
 
@@ -337,13 +337,14 @@ table.board.grid th .th-label {
 /* ---------- contract editor: two-pane + rich fields ---------- */
 .contract-editor { display: flex; gap: 16px; align-items: flex-start; }
 .ce-build { flex: 1 1 auto; min-width: 0; }
-.ce-preview { flex: 0 0 360px; position: sticky; top: 0; }
-.ce-frame { width: 100%; height: 72vh; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.ce-preview { flex: 0 0 50%; max-width: 50%; position: sticky; top: 0; }
+.ce-frame { width: 100%; height: 82vh; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 @media (max-width: 900px) {
   .contract-editor { flex-direction: column; }
-  .ce-preview { flex: none; width: 100%; position: static; }
-  .ce-frame { height: 55vh; }
+  .ce-preview { flex: none; width: 100%; max-width: 100%; position: static; }
+  .ce-frame { height: 60vh; }
 }
+.ce-settings summary { cursor: pointer; color: var(--muted); font-size: 13px; margin: 4px 0; }
 .rich {
   min-height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
   background: #fff; color: #16232a; font-family: var(--font-body); line-height: 1.6;
@@ -352,9 +353,14 @@ table.board.grid th .th-label {
 .rich:empty:before { content: attr(data-ph); color: #9aa7ac; pointer-events: none; }
 .rich.as-title { font-size: 20px; font-weight: 800; color: #0b2830; }
 .rich.as-label { font-weight: 700; color: #0b2830; }
-.rte-toolbar.sticky { position: sticky; top: 0; z-index: 5; background: var(--card); flex-wrap: wrap; padding: 6px; border-radius: 8px; }
+/* sticky editing bar: toolbar + field injection stay pinned while scrolling sections */
+.editor-sticky { position: sticky; top: 0; z-index: 6; background: var(--surface); padding: 6px 0 4px; }
+.rte-toolbar.sticky { position: static; background: var(--card); flex-wrap: wrap; padding: 6px; border-radius: 8px; }
 .tb-btn { min-width: 30px; }
-.inject-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin: 6px 0 10px; }
+.inject-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 3px; margin: 6px 0 0; padding: 6px 8px;
+  background: rgba(134, 205, 222, .16); border: 1px solid rgba(134, 205, 222, .45); border-radius: 8px;
+}
 .add-section { margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .prod-item-edit { border: 1px dashed var(--line); border-radius: 8px; padding: 8px; margin: 6px 0; background: rgba(255,255,255,.02); }
 .tpl-chip { display: inline-flex; align-items: center; gap: 2px; }

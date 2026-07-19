@@ -65,8 +65,7 @@ function headerBand() {
       h('div', { dir: 'ltr' }, 'KOLOTMUSIC@GMAIL.COM'),
       h('div', { dir: 'ltr' }, 'KOLOTBAND.CO.IL')),
     h('div', { class: 'prop-head-brand' },
-      h('img', { class: 'prop-logo', src: '/assets/logo.svg', alt: 'KOLOT' }),
-      h('div', { class: 'prop-tagline' }, 'TURN IT UP.')));
+      h('img', { class: 'prop-logo', src: '/assets/logo-full.svg', alt: 'KOLOT — TURN IT UP.' })));
 }
 
 function eventLine() {
@@ -82,13 +81,25 @@ function renderSection(s, signed, onChange) {
     return h('div', { class: 'prop-titleblock', dir: s.dir || dir, html: s.html || '' });
   }
   if (s.type === 'text') {
-    return h('div', { class: 'prop-textblock', dir: s.dir || dir, html: s.html || '' });
+    return h('div', { class: 'prop-textblock' + (s.cols === 2 ? ' cols2' : ''), dir: s.dir || dir, html: s.html || '' });
   }
-  // products — two-column: label + product lines
+  if (s.type === 'fields') {
+    return fieldsBlock(signed);
+  }
+  if (s.type === 'side') {
+    return h('div', { class: 'prop-section' },
+      h('div', { class: 'prop-section-label', dir: s.title_dir || dir, html: s.title_html || '' }),
+      h('div', { class: 'prop-section-body' }, h('div', { class: 'pp-text', dir: s.dir || dir, html: s.html || '' })));
+  }
+  // product — two-column: side label + product lines
   const selected = new Set(contract.selected_options || []);
   const lines = (s.items || []).map((it) => {
     const name = h('div', { class: 'pp-name', dir: it.name_dir || dir, html: it.name_html || '' });
     const desc = it.desc_html ? h('div', { class: 'pp-desc', dir: it.desc_dir || dir, html: it.desc_html }) : null;
+    // content-only line (no product attached) → plain text, no ✓ and no checkbox (#4)
+    if (!it.exists) {
+      return h('div', { class: 'prop-prod' }, h('div', { class: 'pp-text' }, name, desc));
+    }
     if (it.included) {
       return h('div', { class: 'prop-prod' }, h('span', { class: 'pp-check' }, '✓'),
         h('div', { class: 'pp-text' }, name, desc));
@@ -96,7 +107,7 @@ function renderSection(s, signed, onChange) {
     // optional → selectable
     const checked = selected.has(it.package_item_id);
     const cb = h('input', {
-      type: 'checkbox', class: 'no-print', checked, disabled: signed || !it.exists,
+      type: 'checkbox', class: 'no-print', checked, disabled: signed,
       onchange: async () => {
         checked ? selected.delete(it.package_item_id) : selected.add(it.package_item_id);
         try {
@@ -222,6 +233,7 @@ function draw() {
   const onChange = () => draw();
 
   const secs = contract.resolved_sections || [];
+  const hasFieldsSection = secs.some(s => s.type === 'fields');
   const secEls = [addPoint(0)];
   secs.forEach((s, i) => { secEls.push(renderSection(s, signed, onChange), addPoint(i + 1)); });
 
@@ -229,7 +241,7 @@ function draw() {
     headerBand(),
     eventLine(),
     ...secEls,
-    fieldsBlock(signed),
+    hasFieldsSection ? null : fieldsBlock(signed), // legacy fallback: before the price
     priceSummary,
     // legacy fallback for very old contracts that only had body_html
     (!(contract.resolved_sections || []).length && contract.rendered_body)

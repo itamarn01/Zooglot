@@ -22,9 +22,26 @@ const LEAD_VARS = [
   ['name', 'שם הליד'], ['contact_name', 'איש קשר'], ['event_date', 'תאריך אירוע'],
   ['event_location', 'מיקום'], ['event_type', 'סוג אירוע'], ['email', 'מייל'],
   ['phone1', 'טלפון'], ['id_number', 'ת"ז'], ['address', 'כתובת'],
-  ['final_price', 'מחיר סופי'], ['base_price', 'מחיר בסיס'],
+  ['final_price', 'מחיר סופי'], ['base_price', 'מחיר בסיס'], ['deposit', 'מקדמה (10%)'],
   ['package_type', 'שם החבילה'], ['today', 'תאריך היום'],
 ];
+
+// Clean HTML pasted from Word / Google Docs: drop fixed widths, mso-* junk and
+// fonts that break the page layout, keep only basic formatting.
+function cleanPastedHtml(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('style, meta, link, title, xml, o\\:p').forEach(n => n.remove());
+  const KEEP = ['font-weight', 'font-style', 'text-decoration', 'text-align', 'color'];
+  doc.querySelectorAll('*').forEach((el) => {
+    ['width', 'height', 'align', 'class', 'lang', 'valign', 'hspace', 'vspace', 'cellspacing', 'cellpadding', 'border'].forEach(a => el.removeAttribute(a));
+    const st = el.getAttribute('style');
+    if (st) {
+      const keep = st.split(';').map(x => x.trim()).filter((x) => KEEP.includes(x.split(':')[0].trim().toLowerCase()));
+      if (keep.length) el.setAttribute('style', keep.join('; ')); else el.removeAttribute('style');
+    }
+  });
+  return doc.body.innerHTML;
+}
 
 const LEAD_BIND = [
   ['contact_name', 'שם איש קשר'], ['id_number', 'ת"ז'], ['address', 'כתובת'],
@@ -155,6 +172,8 @@ export async function renderContractsTab(view) {
     c.fields = Array.isArray(c.fields) ? c.fields : [];
     c.language = c.language || 'he';
     c.direction = c.direction || 'rtl';
+    // the fill-in fields render as a movable block; ensure a positional marker exists
+    if (!c.sections.some(s => s.type === 'fields')) c.sections.push({ id: sid(), type: 'fields' });
 
     const curPkg = () => packages.find(p => p.id === c.package_id) || null;
 
@@ -177,6 +196,14 @@ export async function renderContractsTab(view) {
       };
       el.addEventListener('focus', () => { activeEl = el; });
       ['keyup', 'mouseup'].forEach(ev => el.addEventListener(ev, () => saveRange(el)));
+      el.addEventListener('paste', (e) => {
+        const cd = e.clipboardData || window.clipboardData;
+        const html = cd && cd.getData('text/html');
+        e.preventDefault();
+        if (html) document.execCommand('insertHTML', false, cleanPastedHtml(html));
+        else document.execCommand('insertText', false, (cd && cd.getData('text/plain')) || '');
+        el.dispatchEvent(new Event('input'));
+      });
       el.addEventListener('input', () => { model[htmlKey] = el.innerHTML; saveRange(el); scheduleSave(); });
       return el;
     }
@@ -238,7 +265,8 @@ export async function renderContractsTab(view) {
         h('span', { class: 'muted' }, '➕ הוספת סקשן: '),
         h('button', { class: 'btn sm', onclick: () => addSection('title') }, '🔠 כותרת'),
         h('button', { class: 'btn sm', onclick: () => addSection('text') }, '📝 טקסט'),
-        h('button', { class: 'btn sm', onclick: () => addSection('products') }, '🎼 מוצרים')));
+        h('button', { class: 'btn sm', onclick: () => addSection('side') }, '📑 כותרת צדדית + טקסט'),
+        h('button', { class: 'btn sm', onclick: () => addSection('product') }, '🎼 כותרת + מוצרים')));
     }
 
     function moveSection(i, dir) {
@@ -248,13 +276,13 @@ export async function renderContractsTab(view) {
     }
 
     function sectionCard(s, i) {
-      const badge = { title: '🔠 כותרת', text: '📝 טקסט', products: '🎼 מוצרים' }[s.type] || 'סקשן';
+      const badge = { title: '🔠 כותרת', text: '📝 טקסט', side: '📑 כותרת צדדית', product: '🎼 מוצרים', products: '🎼 מוצרים', fields: '📝 שדות למילוי' }[s.type] || 'סקשן';
       const head = h('div', { class: 'flex between' },
         h('span', { class: 'muted', style: 'font-weight:700' }, `${badge} · ${i + 1}`),
         h('div', { class: 'row-actions' },
           h('button', { class: 'icon-btn', title: 'למעלה', onclick: () => moveSection(i, -1) }, '↑'),
           h('button', { class: 'icon-btn', title: 'למטה', onclick: () => moveSection(i, 1) }, '↓'),
-          h('button', {
+          s.type === 'fields' ? null : h('button', {
             class: 'icon-btn', title: 'מחיקה', onclick: () => { c.sections.splice(i, 1); scheduleSave(); drawSections(); },
           }, '🗑️')));
 
@@ -262,9 +290,24 @@ export async function renderContractsTab(view) {
         return h('div', { class: 'section-edit' }, head, richField(s, 'html', 'dir', { placeholder: 'כותרת (למשל: החתונה של…)', cls: 'as-title' }));
       }
       if (s.type === 'text') {
-        return h('div', { class: 'section-edit' }, head, richField(s, 'html', 'dir', { placeholder: 'טקסט חופשי…' }));
+        const cols = h('input', { type: 'checkbox', checked: s.cols === 2 });
+        cols.addEventListener('change', () => { s.cols = cols.checked ? 2 : 1; scheduleSave(); });
+        return h('div', { class: 'section-edit' }, head,
+          richField(s, 'html', 'dir', { placeholder: 'טקסט חופשי…' }),
+          h('label', { class: 'field-check', style: 'margin-top:6px' }, cols, h('span', {}, '🗂️ פיצול ל-2 טורים')));
       }
-      // products
+      if (s.type === 'side') {
+        return h('div', { class: 'section-edit' }, head,
+          h('label', { class: 'field' }, h('span', {}, 'כותרת צדדית'), richField(s, 'title_html', 'title_dir', { placeholder: 'למשל: קבלת פנים', cls: 'as-label' })),
+          h('label', { class: 'field' }, h('span', {}, 'טקסט'), richField(s, 'html', 'dir', { placeholder: 'תיאור…' })));
+      }
+      if (s.type === 'fields') {
+        drawFields();
+        return h('div', { class: 'section-edit' }, head,
+          h('p', { class: 'muted', style: 'font-size:12px;margin:4px 0' }, 'הבלוק הזה נראה ללקוח במיקום הזה. גררו למעלה/למטה כדי לשנות מיקום.'),
+          fieldsBox);
+      }
+      // product (side title + products)
       const itemsBox = h('div', {});
       const drawItems = () => {
         itemsBox.innerHTML = '';
@@ -316,8 +359,9 @@ export async function renderContractsTab(view) {
 
     function addSection(type, index) {
       const base = { id: sid(), type, dir: null };
-      if (type === 'products') Object.assign(base, { title_html: '', title_dir: null, items: [] });
-      else base.html = '';
+      if (type === 'product' || type === 'products') Object.assign(base, { type: 'product', title_html: '', title_dir: null, items: [] });
+      else if (type === 'side') Object.assign(base, { title_html: '', title_dir: null, html: '' });
+      else base.html = ''; // title / text
       if (typeof index === 'number' && index >= 0 && index <= c.sections.length) c.sections.splice(index, 0, base);
       else c.sections.push(base);
       scheduleSave(); drawSections();
@@ -492,21 +536,23 @@ export async function renderContractsTab(view) {
     title.addEventListener('input', debounce(() => scheduleSave(), 500));
 
     // ---- assemble ----
+    const stickyBar = h('div', { class: 'editor-sticky' }, toolbar, injectRow);
     const buildPane = h('div', { class: 'ce-build' },
       h('div', { class: 'grid-2' },
         h('label', { class: 'field' }, h('span', {}, 'כותרת פנימית'), title),
         h('label', { class: 'field' }, h('span', {}, 'חבילה'), pkgSel.el)),
-      h('div', { class: 'grid-2' },
-        h('label', { class: 'field' }, h('span', {}, 'שפה'), langSel),
-        h('label', { class: 'field' }, h('span', {}, 'כיוון ברירת מחדל'), dirSel),
-        h('label', { class: 'field' }, h('span', {}, 'חתימת הנהלה'), sigSel),
-        h('label', { class: 'field-check', style: 'align-self:end' }, reqSig, h('span', {}, '✍️ דרישת חתימת לקוח'))),
+      h('details', { class: 'ce-settings' },
+        h('summary', {}, '⚙️ הגדרות (שפה, כיוון, חתימה)'),
+        h('div', { class: 'grid-2' },
+          h('label', { class: 'field' }, h('span', {}, 'שפה'), langSel),
+          h('label', { class: 'field' }, h('span', {}, 'כיוון ברירת מחדל'), dirSel),
+          h('label', { class: 'field' }, h('span', {}, 'חתימת הנהלה'), sigSel),
+          h('label', { class: 'field-check', style: 'align-self:end' }, reqSig, h('span', {}, '✍️ דרישת חתימת לקוח')))),
       priceLine,
       tplBar,
-      toolbar, injectRow,
+      stickyBar,
       h('h4', { class: 'mt' }, '🧱 סקשנים'),
       sectionsBox,
-      h('details', { class: 'mt' }, h('summary', {}, '📝 שדות למילוי'), fieldsBox),
       h('div', { class: 'card mt', style: 'padding:12px' },
         h('div', { class: 'flex', style: 'flex-wrap:wrap' },
           h('span', {}, '📧 שליחה ללקוח:'), sendEmail,

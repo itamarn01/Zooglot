@@ -39,15 +39,23 @@
       font-size: 12px; color: #fff; font-weight: 700; letter-spacing: 1px; line-height: 1.7;
       text-transform: uppercase; direction: ltr; text-align: left;
     }
-    .prop-head-brand { position: absolute; top: 22px; right: clamp(16px, 5vw, 40px); z-index: 2; text-align: center; }
-    .prop-logo { height: 52px; display: block; margin: 0 auto; }
-    .prop-tagline { color: #8ececd; font-weight: 800; letter-spacing: 3px; font-size: 12px; margin-top: 4px; }
+    .prop-head-brand { position: absolute; top: 20px; right: clamp(16px, 5vw, 40px); z-index: 2; text-align: center; }
+    .prop-logo { height: 74px; display: block; margin: 0 auto; }
     .prop-event { text-align: center; color: #4b6068; font-weight: 600; margin: 0 0 8px; }
+
+    /* keep any pasted content (Word/Docs tables, images, long words) inside the page */
+    .proposal { overflow-wrap: anywhere; }
+    .proposal img { max-width: 100%; height: auto; }
+    .proposal table { max-width: 100% !important; width: auto !important; table-layout: auto; border-collapse: collapse; }
+    .proposal td, .proposal th { max-width: 100%; word-break: break-word; }
+    .proposal :is(.prop-textblock, .pp-text, .pp-name, .pp-desc, .prop-section-label) { overflow-wrap: anywhere; word-break: break-word; }
 
     /* typed sections */
     .prop-titleblock { text-align: center; color: #0b2830; font-size: clamp(22px, 4.5vw, 32px); font-family: var(--font-head); margin: 10px 0 4px; }
     .prop-titleblock :is(h1,h2,h3,p) { margin: 0; }
     .prop-textblock { color: #33454c; margin: 10px 0; }
+    .prop-textblock.cols2 { column-count: 2; column-gap: 26px; }
+    @media (max-width: 560px) { .prop-textblock.cols2 { column-count: 1; } }
     .prop-textblock h3 { color: #0b2830; margin: 12px 0 4px; }
 
     .prop-section { display: grid; grid-template-columns: 150px 1fr; gap: 16px; padding: 16px 0; border-top: 1px solid #e4ebee; }
