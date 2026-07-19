@@ -43,6 +43,11 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+/* Kill horizontal overscroll navigation everywhere: dragging/swiping past a
+   scroll edge (e.g. the wide board table) must NOT trigger the browser's
+   back/forward gesture, which was navigating history and jumping tabs.
+   Set on <html> so it reliably propagates to the viewport scroller. */
+html { overscroll-behavior: none; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -51,10 +56,7 @@ body {
   line-height: 1.55;
   direction: rtl;
   min-height: 100vh;
-  /* stop horizontal overscroll (trackpad/touch swipe past a scroll edge) from
-     being interpreted by the browser as a back/forward navigation gesture,
-     which would otherwise jump tabs while scrolling the wide board table */
-  overscroll-behavior-x: none;
+  overscroll-behavior: none;
 }
 h1, h2, h3, h4 { font-family: var(--font-head); font-weight: 700; letter-spacing: .3px; margin: 0 0 .5em; }
 a { color: var(--brand); text-decoration: none; }
@@ -207,12 +209,17 @@ table.board.grid th .th-label {
 
 /* checkbox + name columns stay pinned to the (RTL) right edge while the wide
    board scrolls horizontally, so the lead a field belongs to is always visible.
-   Right offsets must match CHECKBOX_COL_W (38px) in leads.js. */
-.sticky-col-1, .sticky-col-2 { position: sticky; background: var(--surface); }
-.sticky-col-1 { right: 0; z-index: 4; }
-.sticky-col-2 { right: 38px; z-index: 4; }
-th.sticky-col-1, th.sticky-col-2 { background: var(--surface-2); z-index: 7; }
-tr.row-selected td { background: rgba(134, 205, 222, .14); }
+   Right offsets must match CHECKBOX_COL_W (38px) in leads.js. Backgrounds must
+   be fully opaque so the scrolling cells never bleed through — and must beat the
+   row hover/selected rules, hence the table.board prefixes below. */
+.sticky-col-1, .sticky-col-2 { position: sticky; z-index: 4; }
+.sticky-col-1 { right: 0; }
+.sticky-col-2 { right: 38px; box-shadow: 6px 0 6px -6px rgba(0, 0, 0, .5); }
+table.board td.sticky-col-1, table.board td.sticky-col-2 { background: var(--surface); }
+table.board tr:hover td.sticky-col-1, table.board tr:hover td.sticky-col-2 { background: #1a1f25; }
+table.board tr.row-selected td.sticky-col-1, table.board tr.row-selected td.sticky-col-2 { background: #17272e; }
+table.board th.sticky-col-1, table.board th.sticky-col-2 { background: var(--surface-2); z-index: 7; }
+table.board tr.row-selected td { background: rgba(134, 205, 222, .14); }
 .checkbox-col { text-align: center; }
 .checkbox-col input { width: auto; margin: 0; cursor: pointer; }
 .name-cell { display: flex; align-items: center; gap: 2px; }
@@ -227,9 +234,10 @@ tr.row-selected td { background: rgba(134, 205, 222, .14); }
   background: rgba(134, 205, 222, .12); border: 1px solid rgba(134, 205, 222, .4);
 }
 
-/* phone cell: flag + dash-formatted number (display only, raw digits when focused) */
-.tel-cell { display: flex; align-items: center; gap: 4px; }
-.tel-flag { flex: none; font-size: 15px; line-height: 1; }
+/* phone cell: flag image + dash-formatted number (display only; raw digits when focused) */
+.tel-cell { display: flex; align-items: center; gap: 5px; }
+.tel-flag { flex: none; display: inline-flex; align-items: center; font-size: 13px; }
+.tel-flag-img { width: 20px; height: 15px; border-radius: 2px; object-fit: cover; box-shadow: 0 0 0 1px rgba(0, 0, 0, .25); }
 .tel-cell .cell-edit { flex: 1; min-width: 0; }
 
 .chip {

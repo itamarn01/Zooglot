@@ -477,13 +477,17 @@ function attachLongPress(tr, lead) {
 // display dashes. `onSave(rawValue)` is called on blur when the value changed.
 function telCell(value, onSave) {
   let current = value || '';
-  const refresh = () => {
-    const { flag, display } = formatPhone(current);
-    flagEl.textContent = flag || '📞';
-    input.value = display || current;
-  };
   const flagEl = h('span', { class: 'tel-flag' });
   const input = h('input', { class: 'cell-edit', type: 'tel', dir: 'ltr' });
+  const refresh = () => {
+    const { iso2, display } = formatPhone(current);
+    flagEl.innerHTML = '';
+    // real flag SVGs (Windows can't render flag emoji) — fall back to 📞 if unknown
+    flagEl.append(iso2
+      ? h('img', { class: 'tel-flag-img', src: `/assets/flags/${iso2}.svg`, alt: iso2, loading: 'lazy' })
+      : document.createTextNode('📞'));
+    input.value = display || current;
+  };
   refresh();
   input.addEventListener('focus', () => { input.value = current; });
   input.addEventListener('blur', refresh);

@@ -15,12 +15,6 @@ const DIAL_CODES = [
   ['52', 'MX'], ['54', 'AR'], ['65', 'SG'], ['7', 'RU'], ['1', 'US'],
 ].sort((a, b) => b[0].length - a[0].length);
 
-function flagEmoji(iso2) {
-  if (!iso2 || iso2.length !== 2) return '';
-  const A = 0x1f1e6;
-  return String.fromCodePoint(...[...iso2.toUpperCase()].map(ch => A + (ch.charCodeAt(0) - 65)));
-}
-
 // group a digit string into dash-separated chunks per `sizes`, e.g.
 // groupDigits('0584849089', [3, 3, 4]) -> '058-484-9089'
 function groupDigits(digits, sizes, sep = '-') {
@@ -43,36 +37,41 @@ export function sanitizePhone(raw) {
   return (s.startsWith('+') ? '+' : '') + s.replace(/\D/g, '');
 }
 
-// returns { flag, display } — display is formatted with dashes/spaces for
-// readability, flag is an emoji (or '' if the country couldn't be detected).
+// returns { iso2, display } — display is formatted with dashes/spaces for
+// readability; iso2 is the detected ISO country code (lowercase, '' if unknown),
+// used to pick the flag SVG in /assets/flags/<iso2>.svg.
 export function formatPhone(raw) {
   const s = (raw || '').trim();
-  if (!s) return { flag: '', display: '' };
-  const digits = s.replace(/\D/g, '');
-  if (!digits) return { flag: '', display: s };
+  if (!s) return { iso2: '', display: '' };
+  let digits = s.replace(/\D/g, '');
+  if (!digits) return { iso2: '', display: s };
 
-  if (!s.startsWith('+') && digits.startsWith('0')) {
-    // local Israeli format: 05X-XXX-XXXX (mobile / 07x) or 0X-XXX-XXXX (classic landline)
-    const display = digits.length === 10 ? groupDigits(digits, [3, 3, 4])
-      : digits.length === 9 ? groupDigits(digits, [2, 3, 4])
-        : digits;
-    return { flag: flagEmoji('IL'), display };
-  }
+  // international forms: leading '+', leading '00', or a bare known code like 972…
+  const isIntl = s.startsWith('+') || digits.startsWith('00') || digits.startsWith('972');
+  if (digits.startsWith('00')) digits = digits.slice(2);
 
-  if (s.startsWith('+')) {
+  const israeliNational = (nat) => nat.length === 9 ? groupDigits(nat, [2, 3, 4])
+    : nat.length === 8 ? groupDigits(nat, [1, 3, 4]) : nat;
+
+  if (isIntl) {
     const match = DIAL_CODES.find(([code]) => digits.startsWith(code));
     if (match) {
       const [code, iso2] = match;
       const national = digits.slice(code.length);
       const display = code === '972'
-        // international IL: 58-484-9089 (2-3-4) / 2-123-4567 (1-3-4)
-        ? `+${code} ${national.length === 9 ? groupDigits(national, [2, 3, 4])
-          : national.length === 8 ? groupDigits(national, [1, 3, 4]) : national}`
-        : `+${code} ${groupDigits(national, [3, 3, 3, 3])}`;
-      return { flag: flagEmoji(iso2), display: display.trim() };
+        ? `+${code} ${israeliNational(national)}`
+        : `+${code} ${groupDigits(national, national.length > 10 ? [3, 3, 3, 4] : [3, 3, 4])}`;
+      return { iso2: iso2.toLowerCase(), display: display.trim() };
     }
-    return { flag: '', display: `+${digits}` };
+    return { iso2: '', display: `+${digits}` };
   }
 
-  return { flag: '', display: digits };
+  if (digits.startsWith('0')) {
+    // local Israeli format: 05X-XXX-XXXX (mobile) or 0X-XXX-XXXX (landline)
+    const display = digits.length === 10 ? groupDigits(digits, [3, 3, 4])
+      : digits.length === 9 ? groupDigits(digits, [2, 3, 4]) : digits;
+    return { iso2: 'il', display };
+  }
+
+  return { iso2: '', display: digits };
 }
