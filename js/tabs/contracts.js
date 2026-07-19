@@ -172,8 +172,17 @@ export async function renderContractsTab(view) {
     c.fields = Array.isArray(c.fields) ? c.fields : [];
     c.language = c.language || 'he';
     c.direction = c.direction || 'rtl';
-    // the fill-in fields render as a movable block; ensure a positional marker exists
-    if (!c.sections.some(s => s.type === 'fields')) c.sections.push({ id: sid(), type: 'fields' });
+    // fill-in fields live inside 'fields' sections (one or more, each movable).
+    // Normalise older shapes: ensure every fields section has an items array,
+    // migrate any legacy global c.fields into the first fields section.
+    function ensureFieldsSection() {
+      c.sections = Array.isArray(c.sections) ? c.sections : [];
+      let first = c.sections.find(s => s.type === 'fields');
+      if (!first) { first = { id: sid(), type: 'fields', title_html: '', title_dir: null, items: [] }; c.sections.push(first); }
+      c.sections.forEach(s => { if (s.type === 'fields' && !Array.isArray(s.items)) s.items = []; });
+      if (Array.isArray(c.fields) && c.fields.length) { first.items.push(...c.fields); c.fields = []; }
+    }
+    ensureFieldsSection();
 
     const curPkg = () => packages.find(p => p.id === c.package_id) || null;
 
@@ -225,6 +234,19 @@ export async function renderContractsTab(view) {
       document.execCommand('insertText', false, `{{${key}}}`);
       activeEl.dispatchEvent(new Event('input'));
     }
+    // ordered list; 'decimal' = 1.2.3, 'alpha' = א/ב (RTL) or a/b (LTR)
+    function orderedList(kind) {
+      if (!focusActive()) { toast('לחצו קודם בתוך טקסט', 'error'); return; }
+      document.execCommand('insertOrderedList');
+      const sel = window.getSelection();
+      let node = sel.anchorNode;
+      while (node && node !== activeEl && node.nodeName !== 'OL') node = node.parentNode;
+      if (node && node.nodeName === 'OL') {
+        const rtl = (activeEl.dir || c.direction) === 'rtl';
+        node.style.listStyleType = kind === 'alpha' ? (rtl ? 'hebrew' : 'lower-alpha') : 'decimal';
+      }
+      activeEl.dispatchEvent(new Event('input'));
+    }
     const tb = (label, tt, fn) => h('button', {
       type: 'button', class: 'tb-btn', title: tt,
       onmousedown: (e) => { e.preventDefault(); fn(); },
@@ -241,7 +263,9 @@ export async function renderContractsTab(view) {
       tb('⇥', 'יישור לימין', () => exec('justifyRight')),
       tb('≡', 'מרכוז', () => exec('justifyCenter')),
       tb('⇤', 'יישור לשמאל', () => exec('justifyLeft')),
-      tb('•', 'רשימה', () => exec('insertUnorderedList')),
+      tb('•', 'רשימת תבליטים', () => exec('insertUnorderedList')),
+      tb('1.', 'רשימה ממוספרת', () => orderedList('decimal')),
+      tb('א.', 'רשימה לפי אותיות', () => orderedList('alpha')),
       tb('␡', 'ניקוי עיצוב', () => exec('removeFormat')));
 
     const injectRow = h('div', { class: 'inject-row' });
@@ -249,7 +273,7 @@ export async function renderContractsTab(view) {
       injectRow.innerHTML = '';
       injectRow.append(h('span', { class: 'muted', style: 'font-size:12px' }, 'הזרקה: '),
         ...LEAD_VARS.map(([k, lbl]) => h('span', { class: 'var-chip', onmousedown: (e) => { e.preventDefault(); insertVar(k); } }, lbl)),
-        ...c.fields.map(f => h('span', {
+        ...allFields().map(f => h('span', {
           class: 'var-chip', style: 'border-color:var(--warn);color:var(--warn)',
           onmousedown: (e) => { e.preventDefault(); insertVar(f.key); },
         }, f.label || f.key)));
@@ -266,8 +290,12 @@ export async function renderContractsTab(view) {
         h('button', { class: 'btn sm', onclick: () => addSection('title') }, '🔠 כותרת'),
         h('button', { class: 'btn sm', onclick: () => addSection('text') }, '📝 טקסט'),
         h('button', { class: 'btn sm', onclick: () => addSection('side') }, '📑 כותרת צדדית + טקסט'),
-        h('button', { class: 'btn sm', onclick: () => addSection('product') }, '🎼 כותרת + מוצרים')));
+        h('button', { class: 'btn sm', onclick: () => addSection('product') }, '🎼 כותרת + מוצרים'),
+        h('button', { class: 'btn sm', onclick: () => addSection('fields') }, '📝 שדות למילוי')));
     }
+
+    // every fill-in field across all 'fields' sections (for injection chips)
+    const allFields = () => c.sections.filter(s => s.type === 'fields').flatMap(s => s.items || []);
 
     function moveSection(i, dir) {
       const j = i + dir; if (j < 0 || j >= c.sections.length) return;
@@ -304,12 +332,7 @@ export async function renderContractsTab(view) {
           h('label', { class: 'field' }, h('span', {}, 'טקסט'), richField(s, 'html', 'dir', { placeholder: 'תיאור…' })),
           h('label', { class: 'field-check', style: 'margin-top:6px' }, scols, h('span', {}, '🗂️ פיצול הטקסט ל-2 טורים')));
       }
-      if (s.type === 'fields') {
-        drawFields();
-        return h('div', { class: 'section-edit', dataset: { sid: s.id } }, head,
-          h('p', { class: 'muted', style: 'font-size:12px;margin:4px 0' }, 'הבלוק הזה נראה ללקוח במיקום הזה. גררו למעלה/למטה כדי לשנות מיקום.'),
-          fieldsBox);
-      }
+      if (s.type === 'fields') return fieldsSectionCard(s, head);
       // product (side title + products)
       const itemsBox = h('div', {});
       const drawItems = () => {
@@ -366,6 +389,7 @@ export async function renderContractsTab(view) {
     function addSection(type, index) {
       const base = { id: sid(), type, dir: null };
       if (type === 'product' || type === 'products') Object.assign(base, { type: 'product', title_html: '', title_dir: null, items: [] });
+      else if (type === 'fields') Object.assign(base, { title_html: '', title_dir: null, items: [] });
       else if (type === 'side') Object.assign(base, { title_html: '', title_dir: null, html: '' });
       else base.html = ''; // title / text
       if (typeof index === 'number' && index >= 0 && index <= c.sections.length) c.sections.splice(index, 0, base);
@@ -373,16 +397,27 @@ export async function renderContractsTab(view) {
       scheduleSave(); drawSections();
     }
 
-    // ---- fill-in fields manager (compact) ----
-    const fieldsBox = h('div', { class: 'fields-box' });
-    function drawFields() {
-      fieldsBox.innerHTML = '';
-      if (!c.fields.length) fieldsBox.append(h('p', { class: 'muted', style: 'font-size:12.5px' }, 'שדות למילוי שאפשר להזריק לכל טקסט. סמנו "ניתן לעריכה ע"י הלקוח" כדי שהלקוח יעדכן והמערכת תתעדכן.'));
-      c.fields.forEach((f, i) => fieldsBox.append(fieldRow(f, i)));
-      fieldsBox.append(h('button', { class: 'btn sm primary mt', onclick: addField }, '➕ שדה חדש'));
-      drawInject();
+    // ---- fill-in fields section (title + its own fields, reorderable) ----
+    function fieldsSectionCard(s, head) {
+      s.items = s.items || [];
+      const itemsBox = h('div', {});
+      const drawItems = () => {
+        itemsBox.innerHTML = '';
+        if (!s.items.length) itemsBox.append(h('p', { class: 'muted', style: 'font-size:12px;margin:4px 0' }, 'שדות למילוי — סמנו "ניתן לעריכה" כדי שהלקוח יעדכן והמערכת תתעדכן. ניתן להזריק אותם לכל טקסט.'));
+        s.items.forEach((f, k) => itemsBox.append(fieldItemRow(s, f, k, drawItems)));
+        itemsBox.append(h('button', {
+          class: 'btn sm primary mt', onclick: () => {
+            s.items.push({ id: randKey(), key: randKey(), label: '', source: 'custom', lead_field: 'contact_name', value: '', client_editable: false });
+            scheduleSave(); drawItems(); drawInject();
+          },
+        }, '➕ שדה למילוי'));
+      };
+      drawItems();
+      return h('div', { class: 'section-edit', dataset: { sid: s.id } }, head,
+        h('label', { class: 'field' }, h('span', {}, 'כותרת צד (אופציונלי)'), richField(s, 'title_html', 'title_dir', { placeholder: 'למשל: פרטי המזמין', cls: 'as-label' })),
+        itemsBox);
     }
-    function fieldRow(f, idx) {
+    function fieldItemRow(s, f, idx, rerender) {
       const label = h('input', { type: 'text', value: f.label || '', placeholder: 'תווית' });
       const sourceSel = h('select', {},
         h('option', { value: 'custom', selected: f.source !== 'lead' }, 'ערך קבוע'),
@@ -406,18 +441,22 @@ export async function renderContractsTab(view) {
       sourceSel.addEventListener('change', () => { syncVis(); commit(); });
       leadSel.addEventListener('change', commit);
       clientEdit.addEventListener('change', commit);
+      const move = (dir) => {
+        const j = idx + dir; if (j < 0 || j >= s.items.length) return;
+        [s.items[idx], s.items[j]] = [s.items[j], s.items[idx]];
+        scheduleSave(); rerender();
+      };
       return h('div', { class: 'section-edit' },
         h('div', { class: 'flex between' },
           h('span', { class: 'var-chip', onmousedown: (e) => { e.preventDefault(); insertVar(f.key); } }, f.label || f.key),
-          h('button', { class: 'icon-btn', title: 'מחיקה', onclick: () => { c.fields.splice(idx, 1); scheduleSave(); drawFields(); } }, '🗑️')),
+          h('div', { class: 'row-actions' },
+            h('button', { class: 'icon-btn', title: 'למעלה', onclick: () => move(-1) }, '↑'),
+            h('button', { class: 'icon-btn', title: 'למטה', onclick: () => move(1) }, '↓'),
+            h('button', { class: 'icon-btn', title: 'מחיקה', onclick: () => { s.items.splice(idx, 1); scheduleSave(); rerender(); drawInject(); } }, '🗑️'))),
         h('div', { class: 'grid-2' },
           h('label', { class: 'field' }, h('span', {}, 'תווית'), label),
           h('label', { class: 'field' }, h('span', {}, 'מקור'), sourceSel), valWrap, leadWrap),
         h('label', { class: 'field-check' }, clientEdit, h('span', {}, '✏️ ניתן לעריכה ע"י הלקוח')));
-    }
-    function addField() {
-      c.fields.push({ id: randKey(), key: randKey(), label: '', source: 'custom', lead_field: 'contact_name', value: '', client_editable: false });
-      scheduleSave(); drawFields();
     }
 
     // ---- top controls ----
@@ -471,18 +510,20 @@ export async function renderContractsTab(view) {
     async function applyBuiltin() {
       if (!await confirmModal('החלת תבנית', 'להחליף את התוכן הנוכחי בתבנית "קלאסי קולות"?')) return;
       c.sections = builtinSections(curPkg());
+      ensureFieldsSection();
       await saveAll(); drawSections(); refreshPreview(); toast('התבנית הוחלה ✓', 'success');
     }
     async function applyTemplate(t) {
       if (!await confirmModal('החלת תבנית', `להחליף את התוכן הנוכחי בתבנית "${t.name}"?`)) return;
       const d = t.data || {};
       c.sections = JSON.parse(JSON.stringify(d.sections || []));
-      if (Array.isArray(d.fields)) c.fields = JSON.parse(JSON.stringify(d.fields));
+      c.fields = Array.isArray(d.fields) ? JSON.parse(JSON.stringify(d.fields)) : [];
       if (d.language) c.language = d.language;
       if (d.direction) c.direction = d.direction;
       langSel.value = c.language; dirSel.value = c.direction;
       if ('require_client_signature' in d) { c.require_client_signature = d.require_client_signature; reqSig.checked = d.require_client_signature; }
-      await saveAll(); drawSections(); drawFields(); refreshPreview(); toast('התבנית הוחלה ✓', 'success');
+      ensureFieldsSection();
+      await saveAll(); drawSections(); refreshPreview(); toast('התבנית הוחלה ✓', 'success');
     }
     function saveAsTemplate() {
       const nameInput = h('input', { type: 'text', placeholder: 'שם התבנית' });
@@ -597,7 +638,7 @@ export async function renderContractsTab(view) {
 
     drawTemplates();
     drawSections();
-    drawFields();
+    drawInject();
   }
 
   await reload();

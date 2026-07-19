@@ -84,7 +84,7 @@ function renderSection(s, signed, onChange) {
     return h('div', { class: 'prop-textblock' + (s.cols === 2 ? ' cols2' : ''), dir: s.dir || dir, html: s.html || '' });
   }
   if (s.type === 'fields') {
-    return fieldsBlock(signed);
+    return fieldsSection(s, signed);
   }
   if (s.type === 'side') {
     return h('div', { class: 'prop-section' },
@@ -127,10 +127,8 @@ function renderSection(s, signed, onChange) {
     h('div', { class: 'prop-section-body' + (s.cols === 2 ? ' cols2' : '') }, ...lines));
 }
 
-function fieldsBlock(signed) {
-  const fields = (contract.client_fields || []).filter(f => f.client_editable || (f.value !== '' && f.value != null));
-  if (!fields.length) return null;
-  const rows = fields.map(f => {
+function fieldRows(flds, signed) {
+  return flds.map(f => {
     if (signed || !f.client_editable) {
       return h('div', { class: 'prop-field' }, h('span', { class: 'muted' }, `${f.label}: `), h('b', {}, f.value || '—'));
     }
@@ -138,7 +136,22 @@ function fieldsBlock(signed) {
     inp.addEventListener('change', saveFields);
     return h('label', { class: 'field' }, h('span', {}, `${f.label} ✏️`), inp);
   });
-  return h('div', { class: 'card mt' }, h('h3', {}, `📝 ${t.details}`), ...rows);
+}
+
+// a 'fields' section: optional side title + its own fill-in fields (two-column)
+function fieldsSection(s, signed) {
+  const flds = (s.fields || []).filter(f => f.client_editable || (f.value !== '' && f.value != null));
+  if (!flds.length && !s.title_html) return null;
+  return h('div', { class: 'prop-section' },
+    h('div', { class: 'prop-section-label', dir: s.title_dir || dir, html: s.title_html || '' }),
+    h('div', { class: 'prop-section-body' }, ...fieldRows(flds, signed)));
+}
+
+// legacy fallback for very old contracts with no 'fields' section
+function fieldsBlock(signed) {
+  const fields = (contract.client_fields || []).filter(f => f.client_editable || (f.value !== '' && f.value != null));
+  if (!fields.length) return null;
+  return h('div', { class: 'card mt' }, h('h3', {}, `📝 ${t.details}`), ...fieldRows(fields, signed));
 }
 
 async function saveFields() {
@@ -234,6 +247,12 @@ function draw() {
 
   const secs = contract.resolved_sections || [];
   const hasFieldsSection = secs.some(s => s.type === 'fields');
+  // legacy: if a fields section has no fields of its own, seed the first one from
+  // the old global fields so nothing is lost until the band re-saves the contract
+  if ((contract.client_fields || []).length) {
+    const firstEmpty = secs.find(s => s.type === 'fields' && !(s.fields || []).length);
+    if (firstEmpty) firstEmpty.fields = contract.client_fields;
+  }
   const secEls = [addPoint(0)];
   secs.forEach((s, i) => {
     const el = renderSection(s, signed, onChange);
