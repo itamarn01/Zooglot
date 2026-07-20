@@ -206,7 +206,7 @@ function draw() {
     return;
   }
 
-  host.append(h('div', { class: 'table-wrap board-scroll' }, buildTable(shown)));
+  host.append(buildBoard(shown));
 
   // infinite scroll: reveal 100 more rows as the sentinel comes into view
   if (rows.length > shown.length) {
@@ -331,17 +331,36 @@ const isPhone = () => window.matchMedia('(max-width: 640px)').matches;
 const CHECKBOX_COL_W = () => (isPhone() ? 30 : 38);
 const PHONE_COL_SCALE = 0.72;
 
-function buildTable(rows) {
+// On desktop the board is one table with the checkbox + name columns pinned via
+// position:sticky. That is unusable on iOS — Safari drops sticky table cells
+// whenever an outer scroller moves — so phones get a genuine frozen pane
+// instead: two tables side by side, the right one holding checkbox + name and
+// the left one scrolling horizontally. No sticky involved, so nothing to repaint
+// wrongly. The two tables stay row-aligned because every row is a fixed height
+// (--row-h) and cells never wrap.
+function buildBoard(rows) {
   const cols = columns();
+  if (!isPhone()) {
+    return h('div', { class: 'table-wrap' }, buildTable(rows, cols, 'all'));
+  }
+  return h('div', { class: 'table-wrap board-split' },
+    h('div', { class: 'split-frozen' }, buildTable(rows, cols, 'frozen')),
+    h('div', { class: 'split-rest' }, buildTable(rows, cols, 'rest')));
+}
+
+// part: 'all' (one table) | 'frozen' (checkbox + name) | 'rest' (everything else)
+function buildTable(rows, cols, part) {
   const width = (c) => Math.round(
     (ctx.colWidths[c.key] || c.width || DEFAULT_W) * (isPhone() ? PHONE_COL_SCALE : 1));
+  const dataCols = part === 'frozen' ? cols.slice(0, 1) : part === 'rest' ? cols.slice(1) : cols;
+  const hasCheckbox = part !== 'rest';
+  const hasActions = part !== 'frozen';
 
-  // fixed layout so explicit column widths are honoured exactly.
-  // colgroup indices shift by 1 vs. `cols` because of the leading checkbox column.
+  // fixed layout so explicit column widths are honoured exactly
   const colGroup = h('colgroup', {},
-    h('col', { style: `width:${CHECKBOX_COL_W()}px` }),
-    ...cols.map(c => h('col', { style: `width:${width(c)}px` })),
-    h('col', { style: `width:${isPhone() ? 150 : 214}px` })); // actions: 5 icons + end padding
+    ...(hasCheckbox ? [h('col', { style: `width:${CHECKBOX_COL_W()}px` })] : []),
+    ...dataCols.map(c => h('col', { style: `width:${width(c)}px` })),
+    ...(hasActions ? [h('col', { style: `width:${isPhone() ? 150 : 214}px` })] : [])); // actions: 5 icons + end padding
 
   const allSelected = rows.length > 0 && rows.every(l => ctx.selected.has(l.id));
   const selectAllCb = h('input', {
@@ -353,12 +372,13 @@ function buildTable(rows) {
     },
   });
 
+  // column index within THIS table, for the resize handle's colgroup lookup
+  let colIndex = hasCheckbox ? 1 : 0;
   const thead = h('thead', {}, h('tr', {},
-    h('th', { class: 'checkbox-col sticky-col-1' }, selectAllCb),
-    ...cols.map((c, i) => {
-      const th = h('th', {
-        class: `resizable${i === 0 ? ' sticky-col-2' : ''}`,
-      },
+    ...(hasCheckbox ? [h('th', { class: 'checkbox-col' + (part === 'all' ? ' sticky-col-1' : '') }, selectAllCb)] : []),
+    ...dataCols.map((c) => {
+      const isName = part !== 'rest' && c === cols[0];
+      const th = h('th', { class: `resizable${part === 'all' && isName ? ' sticky-col-2' : ''}` },
         h('span', {
           class: 'th-label',
           onclick: () => {
@@ -368,13 +388,15 @@ function buildTable(rows) {
             draw();
           },
         }, c.label, ctx.sort.col === c.key ? h('span', { class: 'sort-arrow' }, ctx.sort.asc ? ' ▲' : ' ▼') : ''),
-        resizeHandle(c, i + 1));
+        // touch-dragging a 8px grip isn't practical, so resizing is desktop-only
+        isPhone() ? null : resizeHandle(c, colIndex));
+      colIndex++;
       return th;
     }),
-    h('th', {}, 'פעולות')));
+    ...(hasActions ? [h('th', {}, 'פעולות')] : [])));
 
-  const tbody = h('tbody', {}, ...rows.map(lead => buildRow(lead, cols)));
-  return h('table', { class: 'board grid' }, colGroup, thead, tbody);
+  const tbody = h('tbody', {}, ...rows.map(lead => buildRow(lead, cols, part)));
+  return h('table', { class: `board grid pane-${part}` }, colGroup, thead, tbody);
 }
 
 // drag the edge of a header to resize that column; width persists in localStorage
@@ -418,7 +440,7 @@ function resizeHandle(col, colIndex) {
   return handle;
 }
 
-function buildRow(lead, cols) {
+function buildRow(lead, cols, part = 'all') {
   const selectCb = h('input', {
     type: 'checkbox', checked: ctx.selected.has(lead.id),
     onclick: (e) => {
@@ -427,13 +449,16 @@ function buildRow(lead, cols) {
       draw();
     },
   });
+  const dataCols = part === 'frozen' ? cols.slice(0, 1) : part === 'rest' ? cols.slice(1) : cols;
   const tr = h('tr', {
     dataset: { id: lead.id },
     class: ctx.selected.has(lead.id) ? 'row-selected' : '',
   },
-    h('td', { class: 'checkbox-col sticky-col-1' }, selectCb),
-    ...cols.map((c, i) => i === 0 ? buildNameCell(lead, c) : buildCell(lead, c)),
-    h('td', {}, h('div', { class: 'row-actions' },
+    ...(part !== 'rest'
+      ? [h('td', { class: 'checkbox-col' + (part === 'all' ? ' sticky-col-1' : '') }, selectCb)]
+      : []),
+    ...dataCols.map(c => c === cols[0] ? buildNameCell(lead, c, part) : buildCell(lead, c)),
+    ...(part === 'frozen' ? [] : [h('td', {}, h('div', { class: 'row-actions' },
       h('button', { class: 'icon-btn', title: 'כרטיס הליד (כל השדות)', onclick: () => openUpdatesDrawer(lead, 'card') }, '🪪'),
       h('button', { class: 'icon-btn', title: 'תזכורות', onclick: () => openUpdatesDrawer(lead, 'reminders') }, '⏰'),
       h('button', { class: 'icon-btn', title: 'סנכרון ליומן Google', onclick: () => syncToCalendar(lead) }, '📅'),
@@ -445,17 +470,17 @@ function buildRow(lead, cols) {
           toast('הליד נמחק', 'success');
           reload();
         },
-      }, '🗑️'))));
+      }, '🗑️')))]));
   attachLongPress(tr, lead);
   return tr;
 }
 
-// name column doubles as the 💬 updates entry point and stays pinned (with
-// the checkbox column) while scrolling horizontally, so it's always clear
-// which lead the visible fields belong to.
-function buildNameCell(lead, col) {
+// name column doubles as the 💬 updates entry point, and stays visible while the
+// fields scroll — pinned via sticky on desktop, in the frozen pane on phones.
+function buildNameCell(lead, col, part = 'all') {
   const td = buildCell(lead, col);
-  td.classList.add('name-cell', 'sticky-col-2');
+  td.classList.add('name-cell');
+  if (part === 'all') td.classList.add('sticky-col-2');
   // The <td> itself must stay a real table cell — `display:flex` on a sticky td
   // is unreliable in Safari/iOS — so the 💬 + name row lives in an inner wrapper.
   const inner = h('div', { class: 'name-cell-inner' }, ...td.childNodes);
