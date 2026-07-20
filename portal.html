@@ -25,22 +25,31 @@
 
     /* ---- PDF-style proposal (mirrors the KOLOT price proposal) ---- */
     .prop-head {
-      position: relative; height: 128px; margin: 0 0 18px; overflow: hidden;
+      position: relative; height: 140px; margin: 0 0 18px; overflow: hidden;
       background: #fff;
     }
-    /* diagonal cyan band on the inline-start, like the PDF */
-    /* cyan band is always on the physical left (as in the PDF), regardless of text direction */
+    /* diagonal cyan band always on the physical left (as in the PDF), regardless
+       of text direction. It covers ~70% of the width (76% at the top edge,
+       64% at the bottom), leaving the right ~30% for the logo. */
     .prop-head-tri {
       position: absolute; inset: 0; background: #8ececd;
-      clip-path: polygon(0 0, 62% 0, 48% 100%, 0 100%);
+      clip-path: polygon(0 0, 76% 0, 64% 100%, 0 100%);
     }
     .prop-head-info {
       position: absolute; top: 16px; left: clamp(16px, 5vw, 40px); z-index: 2;
       font-size: 12px; color: #fff; font-weight: 700; letter-spacing: 1px; line-height: 1.7;
       text-transform: uppercase; direction: ltr; text-align: left;
     }
-    .prop-head-brand { position: absolute; top: 20px; right: clamp(16px, 5vw, 40px); z-index: 2; text-align: center; }
-    .prop-logo { height: 88px; display: block; margin: 0 auto; }
+    /* logo sits centred in the right 30% of the band */
+    .prop-head-brand {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      right: clamp(10px, 2.5vw, 26px); z-index: 2; width: 28%; text-align: center;
+    }
+    .prop-logo { width: 100%; max-height: 112px; height: auto; object-fit: contain; display: block; margin: 0 auto; }
+    /* shown only if the SVG fails to load, so the brand is never simply missing */
+    .prop-logo-fallback { color: #8ececd; font-family: var(--font-head); line-height: 1; }
+    .prop-logo-fallback b { display: block; font-size: 40px; letter-spacing: 2px; }
+    .prop-logo-fallback span { font-size: 12px; letter-spacing: 4px; }
     .prop-event { text-align: center; color: #4b6068; font-weight: 600; margin: 0 0 8px; }
 
     /* keep any pasted content (Word/Docs tables, images, long words) inside the page */

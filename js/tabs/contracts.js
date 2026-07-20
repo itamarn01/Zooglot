@@ -11,6 +11,7 @@
 // can be saved as a reusable template.
 import { get, post, patch, del } from '../api.js';
 import { h, toast, modal, confirmModal, fmtMoney, skeletonTable, withBusy, comboBox, debounce } from '../ui.js';
+import { pickProducts } from '../product-picker.js';
 
 const STATUS_LABELS = {
   draft: ['טיוטה', 'stage'], sent: ['נשלח ללקוח', 'stage-form'],
@@ -86,11 +87,12 @@ export async function renderContractsTab(view) {
   const host = h('div', {});
   view.append(host);
   host.append(skeletonTable(6));
-  let contracts = [], leads = [], packages = [], signatures = [], templates = [];
+  let contracts = [], leads = [], packages = [], signatures = [], templates = [], products = [];
 
   async function reload() {
-    [{ contracts }, { leads }, { packages }, { signatures }, { templates }] = await Promise.all([
-      get('/contracts'), get('/leads'), get('/packages'), get('/settings/signatures'), get('/contracts/templates'),
+    [{ contracts }, { leads }, { packages }, { signatures }, { templates }, { products }] = await Promise.all([
+      get('/contracts'), get('/leads'), get('/packages'), get('/settings/signatures'),
+      get('/contracts/templates'), get('/products'),
     ]);
     draw();
   }
@@ -338,14 +340,17 @@ export async function renderContractsTab(view) {
       const drawItems = () => {
         itemsBox.innerHTML = '';
         (s.items || []).forEach((it, k) => itemsBox.append(productItemRow(s, it, k, drawItems)));
-        itemsBox.append(h('button', {
-          class: 'btn sm', onclick: () => {
-            if (!curPkg()) { toast('שייכו חבילה קודם כדי לבחור מוצרים', 'error'); return; }
-            s.items = s.items || [];
-            s.items.push({ package_item_id: null, name_html: '', name_dir: null, desc_html: '', desc_dir: null });
-            scheduleSave(); drawItems();
-          },
-        }, '➕ הוספת מוצר לסקשן'));
+        itemsBox.append(
+          h('button', { class: 'btn sm primary', onclick: () => addProductsToSection(s, drawItems) }, '➕ הוספת מוצרים'),
+          h('button', {
+            class: 'btn sm', style: 'margin-inline-start:6px',
+            title: 'שורת טקסט חופשי בלי מוצר מהמערכת',
+            onclick: () => {
+              s.items = s.items || [];
+              s.items.push({ package_item_id: null, product_id: null, name_html: '', name_dir: null, desc_html: '', desc_dir: null });
+              scheduleSave(); drawItems();
+            },
+          }, '✍️ שורת טקסט'));
       };
       const pcols = h('input', { type: 'checkbox', checked: s.cols === 2 });
       pcols.addEventListener('change', () => { s.cols = pcols.checked ? 2 : 1; scheduleSave(); });
@@ -357,30 +362,84 @@ export async function renderContractsTab(view) {
       return card;
     }
 
+    // Pick any number of products in one pass — from the attached package if
+    // there is one, and from the whole catalogue either way (so a contract with
+    // no package can still list products). Package items keep the package's
+    // included/price; catalogue items get their own, editable on the row.
+    async function addProductsToSection(s, redraw) {
+      const pkg = curPkg();
+      const opts = [];
+      const fromPkg = new Set();
+      for (const pi of (pkg?.items || [])) {
+        fromPkg.add(pi.product_id);
+        opts.push({
+          value: `pi:${pi.id}`, label: pi.product?.name || '?',
+          hint: pi.included ? 'כלול בחבילה' : `תוספת ${fmtMoney(pi.effective_price)}`,
+        });
+      }
+      for (const p of products) {
+        if (!p.active || fromPkg.has(p.id)) continue;
+        opts.push({ value: `pr:${p.id}`, label: p.name, hint: `מהקטלוג · ${fmtMoney(p.default_price)}` });
+      }
+      if (!opts.length) { toast('אין מוצרים במערכת — הוסיפו מוצרים בלשונית "מוצרים"', 'error'); return; }
+
+      const chosen = await pickProducts('הוספת מוצרים לסקשן', opts);
+      if (!chosen?.length) return;
+      s.items = s.items || [];
+      for (const v of chosen) {
+        const id = v.slice(3);
+        if (v.startsWith('pi:')) {
+          const pi = (pkg?.items || []).find(x => x.id === id);
+          s.items.push({
+            package_item_id: id, product_id: pi?.product_id || null, included: !!pi?.included,
+            name_html: pi?.product?.name || '', name_dir: null,
+            desc_html: pi?.product?.description || '', desc_dir: null,
+          });
+        } else {
+          const p = products.find(x => x.id === id);
+          s.items.push({
+            package_item_id: null, product_id: id, included: true, price: Number(p?.default_price) || 0,
+            name_html: p?.name || '', name_dir: null,
+            desc_html: p?.description || '', desc_dir: null,
+          });
+        }
+      }
+      scheduleSave(); redraw();
+    }
+
     function productItemRow(s, it, k, redraw) {
       const pkg = curPkg();
-      const opts = (pkg?.items || []).map(pi => ({
-        value: pi.id,
-        label: `${pi.product?.name || '?'} — ${pi.included ? 'כלול' : 'תוספת ' + fmtMoney(pi.effective_price)}`,
-      }));
-      const sel = h('select', {},
-        h('option', { value: '' }, '— בחרו מוצר מהחבילה —'),
-        ...opts.map(o => h('option', { value: o.value, selected: it.package_item_id === o.value }, o.label)));
-      sel.addEventListener('change', () => {
-        it.package_item_id = sel.value || null;
-        const pi = (pkg?.items || []).find(x => x.id === sel.value);
-        if (pi && !it.name_html) it.name_html = pi.product?.name || '';
-        if (pi && !it.desc_html) it.desc_html = pi.product?.description || '';
-        scheduleSave(); redraw();
-      });
       const pi = (pkg?.items || []).find(x => x.id === it.package_item_id);
-      const badge = it.package_item_id
-        ? (pi ? h('span', { class: `chip ${pi.included ? 'status-win' : 'stage-form'}` }, pi.included ? 'כלול' : `תוספת ${fmtMoney(pi.effective_price)}`)
-          : h('span', { class: 'chip status-lost' }, 'לא נמצא בחבילה'))
-        : null;
+
+      // head: what this line is + (for catalogue items) included / price controls
+      let head;
+      if (it.package_item_id) {
+        head = pi
+          ? h('span', { class: `chip ${pi.included ? 'status-win' : 'stage-form'}` },
+            pi.included ? 'כלול בחבילה' : `תוספת ${fmtMoney(pi.effective_price)}`)
+          : h('span', { class: 'chip status-lost' }, 'לא נמצא בחבילה');
+      } else if (it.product_id) {
+        const incSel = h('select', { style: 'max-width:170px' },
+          h('option', { value: '1', selected: it.included !== false }, '✅ כלול במחיר'),
+          h('option', { value: '0', selected: it.included === false }, '➕ תוספת בתשלום'));
+        const priceInp = h('input', {
+          class: 'price-input', type: 'number', dir: 'ltr', value: it.price ?? 0,
+          style: it.included === false ? '' : 'display:none',
+        });
+        incSel.addEventListener('change', () => {
+          it.included = incSel.value === '1';
+          priceInp.style.display = it.included ? 'none' : '';
+          scheduleSave();
+        });
+        priceInp.addEventListener('change', () => { it.price = Number(priceInp.value) || 0; scheduleSave(); });
+        head = h('div', { class: 'flex' }, incSel, priceInp);
+      } else {
+        head = h('span', { class: 'chip stage' }, 'טקסט בלבד');
+      }
+
       return h('div', { class: 'prod-item-edit' },
         h('div', { class: 'flex between' },
-          h('div', { class: 'flex' }, sel, badge),
+          h('div', { class: 'flex' }, head),
           h('button', { class: 'icon-btn', title: 'הסרה', onclick: () => { s.items.splice(k, 1); scheduleSave(); redraw(); } }, '✕')),
         h('label', { class: 'field' }, h('span', {}, 'שם המוצר (ניתן לעיצוב)'), richField(it, 'name_html', 'name_dir', { placeholder: 'שם המוצר' })),
         h('label', { class: 'field' }, h('span', {}, 'תיאור (ניתן לעיצוב)'), richField(it, 'desc_html', 'desc_dir', { placeholder: 'תיאור המוצר' })));

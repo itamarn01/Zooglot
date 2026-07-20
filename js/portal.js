@@ -64,8 +64,18 @@ function headerBand() {
       h('div', {}, '055-5081080'),
       h('div', { dir: 'ltr' }, 'KOLOTMUSIC@GMAIL.COM'),
       h('div', { dir: 'ltr' }, 'KOLOTBAND.CO.IL')),
-    h('div', { class: 'prop-head-brand' },
-      h('img', { class: 'prop-logo', src: '/assets/logo-full.svg', alt: 'KOLOT — TURN IT UP.' })));
+    h('div', { class: 'prop-head-brand' }, brandLogo()));
+}
+
+// KOLOT wordmark. Falls back to styled text if the SVG can't be fetched, so the
+// top-right of the proposal is never blank.
+function brandLogo() {
+  const img = h('img', { class: 'prop-logo', src: '/assets/logo-full.svg', alt: 'KOLOT — TURN IT UP.' });
+  img.addEventListener('error', () => {
+    img.replaceWith(h('div', { class: 'prop-logo-fallback' },
+      h('b', {}, 'KOLOT'), h('span', {}, 'TURN IT UP.')));
+  });
+  return img;
 }
 
 function eventLine() {
@@ -104,12 +114,14 @@ function renderSection(s, signed, onChange) {
       return h('div', { class: 'prop-prod' }, h('span', { class: 'pp-check' }, '✓'),
         h('div', { class: 'pp-text' }, name, desc));
     }
-    // optional → selectable
-    const checked = selected.has(it.package_item_id);
+    // optional → selectable (option_id covers both package extras and catalogue
+    // products dropped straight into the section)
+    const oid = it.option_id || it.package_item_id;
+    const checked = selected.has(oid);
     const cb = h('input', {
       type: 'checkbox', class: 'no-print', checked, disabled: signed,
       onchange: async () => {
-        checked ? selected.delete(it.package_item_id) : selected.add(it.package_item_id);
+        checked ? selected.delete(oid) : selected.add(oid);
         try {
           ({ contract } = await api('/options', { method: 'PATCH', body: { selected_options: [...selected] } }));
           onChange();

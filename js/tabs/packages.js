@@ -3,6 +3,7 @@
 // optional items.
 import { get, post, patch, del } from '../api.js';
 import { h, toast, modal, confirmModal, fmtMoney, skeletonCards } from '../ui.js';
+import { pickProducts } from '../product-picker.js';
 
 export async function renderPackagesTab(view) {
   const host = h('div', {});
@@ -59,35 +60,35 @@ export async function renderPackagesTab(view) {
         zone(pkg, false, '➕ תוספות אופציונליות (הלקוח בוחר בחוזה)', optional)));
   }
 
-  async function addProduct(pkg, productId, included) {
+  // no reload here — the caller reloads once after adding the whole batch
+  async function addProduct(pkg, productId, included, sortOrder) {
     const existing = pkg.items.find(i => i.product_id === productId);
-    try {
-      if (existing) {
-        if (existing.included === included) return;
-        await patch(`/packages/${pkg.id}/items/${existing.id}`, { included });
-      } else {
-        await post(`/packages/${pkg.id}/items`, { product_id: productId, included, sort_order: pkg.items.length });
-      }
-      reload();
-    } catch (err) { toast(err.message, 'error'); }
+    if (existing) {
+      if (existing.included === included) return;
+      await patch(`/packages/${pkg.id}/items/${existing.id}`, { included });
+    } else {
+      await post(`/packages/${pkg.id}/items`, { product_id: productId, included, sort_order: sortOrder });
+    }
   }
 
-  function openProductPicker(pkg, included) {
+  // pick as many products as you like in one pass, then add them all at once
+  async function openProductPicker(pkg, included) {
     const inZone = new Set(pkg.items.filter(i => i.included === included).map(i => i.product_id));
     const available = activeProducts().filter(p => !inZone.has(p.id));
     if (!available.length) { toast('כל המוצרים כבר נמצאים באזור זה', 'error'); return; }
-    const body = h('div', {}, ...available.map(p =>
-      h('button', {
-        class: 'btn', style: 'width:100%;justify-content:space-between;margin-bottom:6px',
-        onclick: async (e) => {
-          e.currentTarget.classList.add('loading');
-          await addProduct(pkg, p.id, included);
-          document.querySelector('.modal-backdrop')?.remove();
-        },
-      }, h('span', {}, p.name), h('span', { class: 'muted' }, fmtMoney(p.default_price)))));
-    modal(included ? 'הוספת מוצר כלול' : 'הוספת תוספת אופציונלית', body, {
-      actions: [{ label: 'סגירה', onclick: (close) => close() }],
-    });
+
+    const ids = await pickProducts(
+      included ? 'הוספת מוצרים כלולים במחיר' : 'הוספת תוספות אופציונליות',
+      available.map(p => ({ value: p.id, label: p.name, hint: fmtMoney(p.default_price) })));
+    if (!ids?.length) return;
+
+    try {
+      for (const [n, id] of ids.entries()) await addProduct(pkg, id, included, pkg.items.length + n);
+      toast(ids.length === 1 ? 'המוצר נוסף ✓' : `נוספו ${ids.length} מוצרים ✓`, 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+    reload();
   }
 
   function zone(pkg, included, title, items) {

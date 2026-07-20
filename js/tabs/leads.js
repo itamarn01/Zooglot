@@ -336,7 +336,7 @@ function buildTable(rows) {
   const colGroup = h('colgroup', {},
     h('col', { style: `width:${CHECKBOX_COL_W}px` }),
     ...cols.map(c => h('col', { style: `width:${width(c)}px` })),
-    h('col', { style: 'width:170px' }));
+    h('col', { style: 'width:214px' })); // actions: 5 icons + end padding
 
   const allSelected = rows.length > 0 && rows.every(l => ctx.selected.has(l.id));
   const selectAllCb = h('input', {
