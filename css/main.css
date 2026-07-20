@@ -676,7 +676,20 @@ main#view > h2::after {
   table.board { min-width: 900px; } /* horizontal scroll inside .table-wrap */
 
   /* ---- denser board on phones, so more fields fit next to the pinned name ---- */
+  /* iOS does not repaint horizontally-sticky table cells while an OUTER scroller
+     moves: the pinned checkbox/name columns vanished on vertical page scroll (and
+     on focusing a cell) and only came back once the table was scrolled sideways.
+     Making .table-wrap scroll in BOTH axes means the sticky cells' scrollport is
+     the element that actually moves, which repaints correctly — and it gives the
+     Monday-style board where the header and name stay put while the rows scroll. */
   .table-wrap { --cb-w: 30px; }
+  .board-scroll {
+    max-height: 68vh;
+    max-height: 68dvh;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scroll-padding-block-start: 34px; /* keep a focused cell clear of the sticky header */
+  }
   table.board th { font-size: 11px; padding: 6px 5px; }
   table.board.grid th { padding-inline-end: 9px; }
   table.board td { padding: 1px 3px; }

@@ -206,7 +206,7 @@ function draw() {
     return;
   }
 
-  host.append(h('div', { class: 'table-wrap' }, buildTable(shown)));
+  host.append(h('div', { class: 'table-wrap board-scroll' }, buildTable(shown)));
 
   // infinite scroll: reveal 100 more rows as the sentinel comes into view
   if (rows.length > shown.length) {
