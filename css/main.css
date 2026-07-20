@@ -166,7 +166,10 @@ label.field > span { display: block; font-size: 13px; color: var(--text-dim); ma
   overflow-x: auto; overscroll-behavior-x: contain; border: 1px solid var(--line); border-radius: var(--radius);
   background: var(--surface);
 }
-table.board { border-collapse: collapse; width: 100%; min-width: 1250px; }
+/* `separate` (not `collapse`) is required for position:sticky on th/td to work
+   in Safari/iOS. Every cell draws its own bottom + inline-end border and the
+   spacing is zeroed, so it renders identically to a collapsed table. */
+table.board { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 1250px; }
 table.board th {
   position: sticky; top: 0; z-index: 5;
   background: var(--surface-2); color: var(--text-dim);
@@ -229,8 +232,8 @@ table.board tr.row-selected td { background: rgba(134, 205, 222, .14); }
 table.board.grid th:last-child, table.board.grid td:last-child { padding-inline-end: 14px; }
 .checkbox-col { text-align: center; }
 .checkbox-col input { width: auto; margin: 0; cursor: pointer; }
-.name-cell { display: flex; align-items: center; gap: 2px; }
-.name-cell .cell-edit { flex: 1; min-width: 0; }
+.name-cell-inner { display: flex; align-items: center; gap: 2px; }
+.name-cell-inner .cell-edit { flex: 1; min-width: 0; }
 .updates-inline { flex: none; position: relative; }
 .updates-inline sup { color: var(--brand); font-weight: 700; margin-inline-start: 1px; }
 

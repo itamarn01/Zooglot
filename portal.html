@@ -88,7 +88,16 @@
     /* preview edit mode: clicking a section jumps to it in the editor */
     .edit-clickable { cursor: pointer; }
     .edit-clickable:hover { outline: 2px dashed #86cdde; outline-offset: 3px; border-radius: 6px; }
-    @media (max-width: 560px) { .prop-section { grid-template-columns: 1fr; gap: 6px; } }
+    /* keep the side titles as a real side column on phones too — just narrower */
+    @media (max-width: 560px) {
+      .prop-section { grid-template-columns: 88px 1fr; gap: 10px; padding: 12px 0; }
+      .prop-section-label { font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; }
+    }
+
+    /* signature row: the name field flexes, "Clear" never wraps mid-word */
+    .sig-row { display: flex; gap: 8px; align-items: center; }
+    .sig-row input { flex: 1; min-width: 0; }
+    .sig-row .btn { flex: none; white-space: nowrap; }
 
     .prop-price {
       margin-top: 18px; background: #0b2830; color: #f7c11e;

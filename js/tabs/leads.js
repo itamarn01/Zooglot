@@ -450,10 +450,14 @@ function buildRow(lead, cols) {
 function buildNameCell(lead, col) {
   const td = buildCell(lead, col);
   td.classList.add('name-cell', 'sticky-col-2');
-  td.prepend(h('button', {
+  // The <td> itself must stay a real table cell — `display:flex` on a sticky td
+  // is unreliable in Safari/iOS — so the 💬 + name row lives in an inner wrapper.
+  const inner = h('div', { class: 'name-cell-inner' }, ...td.childNodes);
+  inner.prepend(h('button', {
     class: 'icon-btn updates-inline', title: 'עדכונים ותכתובת',
     onclick: (e) => { e.stopPropagation(); openUpdatesDrawer(lead); },
   }, '💬', lead.updates_count ? h('sup', {}, lead.updates_count) : ''));
+  td.append(inner);
   return td;
 }
 

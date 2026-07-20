@@ -198,7 +198,8 @@ function signatureBlock(signed, reqSig, afterSign) {
   if (reqSig) {
     pad = signaturePad();
     controls.append(h('p', { class: 'muted' }, t.signHint), pad.el,
-      h('div', { class: 'flex mt' }, nameInput, h('button', { class: 'btn sm', onclick: () => pad.clear() }, t.clear)));
+      h('div', { class: 'flex mt sig-row' }, nameInput,
+        h('button', { class: 'btn sm', onclick: () => pad.clear() }, t.clear)));
   } else {
     controls.append(h('p', { class: 'muted' }, t.approveHint), nameInput);
   }
@@ -292,8 +293,9 @@ function draw() {
       ? h('div', { class: 'prop-textblock', html: contract.rendered_body }) : null,
     signatureBlock(signed, reqSig, () => setTimeout(downloadPdf, 400)));
 
+  // spread, don't pass null: Element.append(null) would render the text "null"
   root.append(doc,
-    signed ? h('button', { class: 'btn primary mt no-print', style: 'width:100%', onclick: downloadPdf }, t.download) : null,
+    ...(signed ? [h('button', { class: 'btn primary mt no-print', style: 'width:100%', onclick: downloadPdf }, t.download)] : []),
     h('div', { class: 'mt' }), priceBanner,
     h('p', { class: 'muted no-print', style: 'text-align:center;margin-top:24px' }, 'להקת קולות · KOLOT · 055-5081080'));
 }
