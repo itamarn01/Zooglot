@@ -221,7 +221,9 @@ table.board.grid th .th-label {
    row hover/selected rules, hence the table.board prefixes below. */
 .sticky-col-1, .sticky-col-2 { position: sticky; z-index: 4; }
 .sticky-col-1 { right: 0; }
-.sticky-col-2 { right: 38px; box-shadow: 6px 0 6px -6px rgba(0, 0, 0, .5); }
+/* offset must equal the checkbox column width — driven by --cb-w so the phone
+   layout can narrow it in one place (see CHECKBOX_COL_W in leads.js) */
+.sticky-col-2 { right: var(--cb-w, 38px); box-shadow: 6px 0 6px -6px rgba(0, 0, 0, .5); }
 table.board td.sticky-col-1, table.board td.sticky-col-2 { background: var(--surface); }
 table.board tr:hover td.sticky-col-1, table.board tr:hover td.sticky-col-2 { background: #1a1f25; }
 table.board tr.row-selected td.sticky-col-1, table.board tr.row-selected td.sticky-col-2 { background: #17272e; }
@@ -672,6 +674,19 @@ main#view > h2::after {
   .board-toolbar .pipeline-tabs button { flex: 1; padding: 8px 6px; }
   .modal { padding: 16px; }
   table.board { min-width: 900px; } /* horizontal scroll inside .table-wrap */
+
+  /* ---- denser board on phones, so more fields fit next to the pinned name ---- */
+  .table-wrap { --cb-w: 30px; }
+  table.board th { font-size: 11px; padding: 6px 5px; }
+  table.board.grid th { padding-inline-end: 9px; }
+  table.board td { padding: 1px 3px; }
+  table.board td .cell-edit { padding: 4px 4px; min-width: 0; }
+  /* iOS Safari zooms the whole page when focusing an input under 16px — which
+     is what left half the screen blank while editing a name. 16px prevents it. */
+  table.board td .cell-edit, table.board td select, table.board td input { font-size: 16px; }
+  .name-cell-inner .updates-inline { padding: 2px; font-size: 13px; }
+  .row-actions { gap: 1px; }
+  .row-actions .icon-btn { padding: 3px; font-size: 15px; }
 
   /* app-style bottom navigation replaces the top tab bar */
   nav.tabs { display: none; }

@@ -2,7 +2,7 @@
 // simple picker (no drag & drop), with per-package price overrides for
 // optional items.
 import { get, post, patch, del } from '../api.js';
-import { h, toast, modal, confirmModal, fmtMoney, skeletonCards } from '../ui.js';
+import { h, toast, modal, confirmModal, fmtMoney, skeletonCards, withBusy } from '../ui.js';
 import { pickProducts } from '../product-picker.js';
 
 export async function renderPackagesTab(view) {
@@ -83,19 +83,23 @@ export async function renderPackagesTab(view) {
     if (!ids?.length) return;
 
     try {
-      for (const [n, id] of ids.entries()) await addProduct(pkg, id, included, pkg.items.length + n);
+      // in parallel — adding a dozen products one round-trip at a time was the
+      // reason the zone seemed to lag behind / need a manual refresh
+      await Promise.all(ids.map((id, n) => addProduct(pkg, id, included, pkg.items.length + n)));
       toast(ids.length === 1 ? 'המוצר נוסף ✓' : `נוספו ${ids.length} מוצרים ✓`, 'success');
     } catch (err) {
       toast(err.message, 'error');
     }
-    reload();
+    await reload();
   }
 
   function zone(pkg, included, title, items) {
     return h('div', { class: 'dropzone' },
       h('div', { class: 'flex between' },
         h('div', { class: 'dz-title' }, title),
-        h('button', { class: 'btn sm primary', onclick: () => openProductPicker(pkg, included) }, '➕ הוספת מוצר')),
+        // withBusy keeps a spinner on the button until the whole batch is saved
+        // and the package has been re-rendered, so the wait is always visible
+        h('button', { class: 'btn sm primary', onclick: withBusy(() => openProductPicker(pkg, included)) }, '➕ הוספת מוצר')),
       ...items.map(i => itemRow(pkg, i)),
       !items.length ? h('p', { class: 'muted', style: 'margin:4px' }, 'לחצו "הוספת מוצר" כדי לצרף מוצר לאזור זה') : null);
   }

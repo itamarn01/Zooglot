@@ -325,18 +325,23 @@ function filterControl() {
 
 // ---------------- table ----------------
 const DEFAULT_W = 150;
-const CHECKBOX_COL_W = 38;
+// phones get a narrower checkbox column and tighter data columns so more fields
+// fit beside the pinned name. Must stay in sync with --cb-w in main.css.
+const isPhone = () => window.matchMedia('(max-width: 640px)').matches;
+const CHECKBOX_COL_W = () => (isPhone() ? 30 : 38);
+const PHONE_COL_SCALE = 0.72;
 
 function buildTable(rows) {
   const cols = columns();
-  const width = (c) => ctx.colWidths[c.key] || c.width || DEFAULT_W;
+  const width = (c) => Math.round(
+    (ctx.colWidths[c.key] || c.width || DEFAULT_W) * (isPhone() ? PHONE_COL_SCALE : 1));
 
   // fixed layout so explicit column widths are honoured exactly.
   // colgroup indices shift by 1 vs. `cols` because of the leading checkbox column.
   const colGroup = h('colgroup', {},
-    h('col', { style: `width:${CHECKBOX_COL_W}px` }),
+    h('col', { style: `width:${CHECKBOX_COL_W()}px` }),
     ...cols.map(c => h('col', { style: `width:${width(c)}px` })),
-    h('col', { style: 'width:214px' })); // actions: 5 icons + end padding
+    h('col', { style: `width:${isPhone() ? 150 : 214}px` })); // actions: 5 icons + end padding
 
   const allSelected = rows.length > 0 && rows.every(l => ctx.selected.has(l.id));
   const selectAllCb = h('input', {
@@ -391,7 +396,8 @@ function resizeHandle(col, colIndex) {
       const dx = startX - ev.clientX;
       const w = Math.max(70, Math.round(startW + dx));
       colEl.style.width = `${w}px`;
-      ctx.colWidths[col.key] = w;
+      // store the unscaled width so a phone resize doesn't shrink again on redraw
+      ctx.colWidths[col.key] = isPhone() ? Math.round(w / PHONE_COL_SCALE) : w;
     };
     const onUp = () => {
       handle.classList.remove('dragging');
