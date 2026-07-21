@@ -175,14 +175,18 @@ export async function renderContractsTab(view) {
     c.language = c.language || 'he';
     c.direction = c.direction || 'rtl';
     // fill-in fields live inside 'fields' sections (one or more, each movable).
-    // Normalise older shapes: ensure every fields section has an items array,
-    // migrate any legacy global c.fields into the first fields section.
+    // Normalise older shapes: ensure every fields section has an items array, and
+    // migrate any legacy global c.fields into a fields section. A fields section
+    // is only created when there are legacy fields to preserve — otherwise none
+    // is forced, so the user is free to have no fill-in section (or delete it).
     function ensureFieldsSection() {
       c.sections = Array.isArray(c.sections) ? c.sections : [];
-      let first = c.sections.find(s => s.type === 'fields');
-      if (!first) { first = { id: sid(), type: 'fields', title_html: '', title_dir: null, items: [] }; c.sections.push(first); }
       c.sections.forEach(s => { if (s.type === 'fields' && !Array.isArray(s.items)) s.items = []; });
-      if (Array.isArray(c.fields) && c.fields.length) { first.items.push(...c.fields); c.fields = []; }
+      if (Array.isArray(c.fields) && c.fields.length) {
+        let first = c.sections.find(s => s.type === 'fields');
+        if (!first) { first = { id: sid(), type: 'fields', title_html: '', title_dir: null, items: [] }; c.sections.push(first); }
+        first.items.push(...c.fields); c.fields = [];
+      }
     }
     ensureFieldsSection();
 
@@ -312,7 +316,7 @@ export async function renderContractsTab(view) {
         h('div', { class: 'row-actions' },
           h('button', { class: 'icon-btn', title: 'למעלה', onclick: () => moveSection(i, -1) }, '↑'),
           h('button', { class: 'icon-btn', title: 'למטה', onclick: () => moveSection(i, 1) }, '↓'),
-          s.type === 'fields' ? null : h('button', {
+          h('button', {
             class: 'icon-btn', title: 'מחיקה', onclick: () => { c.sections.splice(i, 1); scheduleSave(); drawSections(); },
           }, '🗑️')));
 

@@ -24,6 +24,8 @@ const STR = {
     included: 'כלול',
     subtotal: 'סכום ביניים', discountL: 'הנחה', vatL: 'מע"מ',
     inclVat: 'כולל מע"מ', plusVat: 'לפני מע"מ',
+    addonHint: '➕ אפשר להוסיף תוספות גם לאחר החתימה — הסימון יעדכן את ההזמנה שלכם',
+    addonAdded: 'התוספת נוספה להזמנה ✓', addonRemoved: 'התוספת הוסרה',
   },
   en: {
     total: 'Total', signatures: 'Signatures & Approval', band: 'The band', client: 'Client',
@@ -36,6 +38,8 @@ const STR = {
     included: 'Included',
     subtotal: 'Subtotal', discountL: 'Discount', vatL: 'VAT',
     inclVat: 'incl. VAT', plusVat: 'before VAT',
+    addonHint: '➕ You can add extras even after signing — ticking updates your order',
+    addonAdded: 'Added to your order ✓', addonRemoved: 'Removed',
   },
 };
 
@@ -99,7 +103,9 @@ function renderSection(s, signed, onChange) {
       h('div', { class: 'prop-section-body' }, h('div', { class: 'pp-text' + (s.cols === 2 ? ' cols2' : ''), dir: s.dir || dir, html: s.html || '' })));
   }
   // product — two-column: side label + product lines
-  const selected = new Set(contract.selected_options || []);
+  const selected = new Set(contract.selected_options || []);   // locked at signing
+  const postSel = new Set(contract.post_sign_options || []);   // added after signing
+  let hasAddon = false;
   const lines = (s.items || []).map((it) => {
     const name = h('div', { class: 'pp-name', dir: it.name_dir || dir, html: it.name_html || '' });
     const desc = it.desc_html ? h('div', { class: 'pp-desc', dir: it.desc_dir || dir, html: it.desc_html }) : null;
@@ -108,15 +114,42 @@ function renderSection(s, signed, onChange) {
       return h('div', { class: 'prop-prod' }, h('div', { class: 'pp-text' }, name, desc));
     }
     if (it.included) {
-      return h('div', { class: 'prop-prod' }, h('span', { class: 'pp-check' }, '✓'),
-        h('div', { class: 'pp-text' }, name, desc));
+      // included products: plain line, no ✓ icon
+      return h('div', { class: 'prop-prod' }, h('div', { class: 'pp-text' }, name, desc));
     }
-    // optional → selectable (option_id covers both package extras and catalogue
-    // products dropped straight into the section)
+    // optional (option_id covers package extras and catalogue products alike)
     const oid = it.option_id || it.package_item_id;
+    const priceTag = h('b', { class: 'pp-price' }, `+${fmtMoney(it.price)}`);
+
+    if (signed) {
+      // agreed at signing → locked line, cannot be changed
+      if (selected.has(oid)) {
+        return h('div', { class: 'prop-prod optional' },
+          h('span', { class: 'pp-check' }, '✓'),
+          h('div', { class: 'pp-text' }, name, desc), h('span', { style: 'flex:1' }), priceTag);
+      }
+      // not agreed → the client may still ADD it after signing (upsell)
+      hasAddon = true;
+      const added = postSel.has(oid);
+      const cb = h('input', {
+        type: 'checkbox', class: 'no-print', checked: added,
+        onchange: async () => {
+          added ? postSel.delete(oid) : postSel.add(oid);
+          try {
+            ({ contract } = await api('/addons', { method: 'PATCH', body: { post_sign_options: [...postSel] } }));
+            toast(added ? t.addonRemoved : t.addonAdded, 'success');
+            onChange();
+          } catch (e) { toast(e.message, 'error'); }
+        },
+      });
+      return h('label', { class: 'prop-prod optional addon' + (added ? ' on' : '') },
+        cb, h('div', { class: 'pp-text' }, name, desc), h('span', { style: 'flex:1' }), priceTag);
+    }
+
+    // before signing → normal live selection
     const checked = selected.has(oid);
     const cb = h('input', {
-      type: 'checkbox', class: 'no-print', checked, disabled: signed,
+      type: 'checkbox', class: 'no-print', checked,
       onchange: async () => {
         checked ? selected.delete(oid) : selected.add(oid);
         try {
@@ -125,15 +158,13 @@ function renderSection(s, signed, onChange) {
         } catch (e) { toast(e.message, 'error'); }
       },
     });
-    return h('label', { class: 'prop-prod optional' + (signed && !checked ? ' dim' : '') },
-      cb, signed ? h('span', { class: 'pp-check' }, checked ? '✓' : '▫') : null,
-      h('div', { class: 'pp-text' }, name, desc),
-      h('span', { style: 'flex:1' }),
-      h('b', { class: 'pp-price' }, `+${fmtMoney(it.price)}`));
+    return h('label', { class: 'prop-prod optional' },
+      cb, h('div', { class: 'pp-text' }, name, desc), h('span', { style: 'flex:1' }), priceTag);
   });
   return h('div', { class: 'prop-section' },
     h('div', { class: 'prop-section-label', dir: s.title_dir || dir, html: s.title_html || '' }),
-    h('div', { class: 'prop-section-body' + (s.cols === 2 ? ' cols2' : '') }, ...lines));
+    h('div', { class: 'prop-section-body' + (s.cols === 2 ? ' cols2' : '') }, ...lines,
+      hasAddon ? h('div', { class: 'pp-addon-hint no-print' }, t.addonHint) : null));
 }
 
 function fieldRows(flds, signed) {
@@ -143,7 +174,7 @@ function fieldRows(flds, signed) {
     }
     const inp = h('input', { type: 'text', value: f.value || '', dataset: { key: f.key } });
     inp.addEventListener('change', saveFields);
-    return h('label', { class: 'field' }, h('span', {}, `${f.label} ✏️`), inp);
+    return h('label', { class: 'field' }, h('span', {}, f.label), inp);
   });
 }
 
@@ -233,7 +264,8 @@ function downloadPdf() {
 function addPoint(index) {
   if (!editMode) return null;
   const menu = h('div', { class: 'edit-add-menu' },
-    ...[['title', '🔠 כותרת'], ['text', '📝 טקסט'], ['side', '📑 כותרת צדדית'], ['product', '🎼 מוצרים']].map(([type, lbl]) =>
+    ...[['title', '🔠 כותרת'], ['text', '📝 טקסט'], ['side', '📑 כותרת צדדית + טקסט'],
+      ['product', '🎼 כותרת + מוצרים'], ['fields', '📝 שדות למילוי']].map(([type, lbl]) =>
       h('button', {
         class: 'btn sm',
         onmousedown: (e) => {

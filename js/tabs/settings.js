@@ -66,12 +66,61 @@ export async function renderSettingsTab(view, state) {
 
   // ================= integrations =================
   const statusDot = (ok) => h('span', { class: 'badge-dot', style: `background:${ok ? 'var(--ok)' : 'var(--danger)'}` });
+
+  // WhatsApp linking: the band phone holder scans the QR (WhatsApp → Linked
+  // devices) to connect. Self-updating card that polls the server while pairing.
+  function whatsappCard() {
+    const box = h('div', { class: 'wa-card' });
+    let timer = null;
+
+    const render = (st) => {
+      box.innerHTML = '';
+      const enabled = st.enabled ?? integrations.whatsapp;
+      box.append(h('h4', {}, '💬 וואטסאפ · חיבור טלפון הלהקה'));
+
+      if (!enabled) {
+        box.append(h('p', {}, statusDot(false), ' כבוי — הגדירו ENABLE_WHATSAPP=true בשרת והפעילו מחדש.'));
+      } else if (st.installed === false) {
+        box.append(h('p', {}, statusDot(false), ' החבילה חסרה בשרת — הריצו: npm i @open-wa/wa-automate'));
+      } else if (st.connected) {
+        box.append(
+          h('p', {}, statusDot(true), ` מחובר${st.me ? ' · ' + st.me : ''} — הודעות נכנסות ייהפכו ללידים`),
+          h('button', { class: 'btn danger sm', onclick: withBusy(async () => { await post('/settings/whatsapp/disconnect', {}); poll(); }) }, 'ניתוק'));
+      } else if (st.qr) {
+        box.append(
+          h('p', { class: 'muted' }, 'בטלפון של הלהקה: וואטסאפ ← מכשירים מקושרים ← קישור מכשיר, וסרקו:'),
+          h('img', { class: 'wa-qr', src: st.qr, alt: 'WhatsApp QR' }),
+          h('p', { class: 'muted', style: 'font-size:12px' }, '⏳ ממתין לסריקה…'));
+      } else if (st.starting) {
+        box.append(h('p', {}, statusDot(false), ' מתחבר… הקוד יופיע בעוד רגע'));
+      } else {
+        box.append(
+          st.error ? h('p', { style: 'color:var(--danger)' }, '⚠️ ' + st.error) : h('p', { class: 'muted' }, 'לא מחובר.'),
+          h('button', { class: 'btn primary sm', onclick: withBusy(async () => { await post('/settings/whatsapp/connect', {}); poll(); }) }, '🔗 חיבור וואטסאפ'));
+      }
+    };
+
+    async function poll() {
+      if (!box.isConnected) { clearTimeout(timer); return; } // stopped viewing settings
+      try {
+        const st = await get('/settings/whatsapp');
+        render(st);
+        clearTimeout(timer);
+        if (st.enabled && st.installed !== false && !st.connected) timer = setTimeout(poll, 2500);
+      } catch { /* transient — try again shortly */ clearTimeout(timer); timer = setTimeout(poll, 4000); }
+    }
+
+    render({ enabled: integrations.whatsapp });
+    poll();
+    return box;
+  }
+
   grid.append(h('div', { class: 'card' },
     h('h3', {}, iconBadge('🔌', 'cyan'), 'אינטגרציות'),
     h('p', {}, statusDot(!integrations.mock_db), ` בסיס נתונים: ${integrations.mock_db ? 'מצב Mock מקומי (הזן מפתחות Supabase ב-.env)' : 'Supabase מחובר'}`),
     h('p', {}, statusDot(integrations.resend), ` Resend (מיילים): ${integrations.resend ? 'פעיל' : 'לא מוגדר — מיילים מודפסים לקונסול'}`),
     h('p', {}, statusDot(integrations.openai), ` OpenAI (ניתוח הקלטות): ${integrations.openai ? 'פעיל' : 'לא מוגדר — מצב דמו'}`),
-    h('p', {}, statusDot(integrations.whatsapp), ` וואטסאפ (OpenWA · 055-5081080): ${integrations.whatsapp ? 'פעיל' : 'כבוי (ENABLE_WHATSAPP=true להפעלה)'}`),
+    whatsappCard(),
     h('hr', { style: 'border-color:var(--line)' }),
     h('h4', {}, '📅 Google Calendar'),
     calStatus.connected
