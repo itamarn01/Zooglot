@@ -548,6 +548,44 @@ export async function renderContractsTab(view) {
       c.require_client_signature = reqSig.checked; refreshPreview();
     });
 
+    // ---- pricing terms: VAT + discount (shown in the proposal's TOTAL box) ----
+    c.vat_mode = c.vat_mode || 'none';
+    c.vat_rate = c.vat_rate ?? 18;
+    c.discount_type = c.discount_type || 'none';
+    c.discount_value = c.discount_value ?? 0;
+
+    const vatModeSel = h('select', {},
+      h('option', { value: 'none', selected: c.vat_mode === 'none' }, 'ללא מע"מ'),
+      h('option', { value: 'added', selected: c.vat_mode === 'added' }, 'לא כולל — יתווסף מע"מ'),
+      h('option', { value: 'included', selected: c.vat_mode === 'included' }, 'כולל מע"מ'));
+    const vatRateInp = h('input', { type: 'number', dir: 'ltr', min: '0', step: '0.1', value: c.vat_rate });
+    const discTypeSel = h('select', {},
+      h('option', { value: 'none', selected: c.discount_type === 'none' }, 'ללא הנחה'),
+      h('option', { value: 'percent', selected: c.discount_type === 'percent' }, 'הנחה באחוזים (%)'),
+      h('option', { value: 'amount', selected: c.discount_type === 'amount' }, 'הנחה בסכום (₪)'));
+    const discValInp = h('input', { type: 'number', dir: 'ltr', min: '0', step: '1', value: c.discount_value });
+
+    const syncTermsDisabled = () => {
+      vatRateInp.disabled = c.vat_mode === 'none';
+      discValInp.disabled = c.discount_type === 'none';
+    };
+    syncTermsDisabled();
+
+    async function applyTerms() {
+      syncTermsDisabled();
+      const { contract: resp } = await patch(`/contracts/${c.id}`, {
+        vat_mode: c.vat_mode, vat_rate: Number(c.vat_rate) || 0,
+        discount_type: c.discount_type, discount_value: Number(c.discount_value) || 0,
+      });
+      c.price = resp.price; c.final_price = resp.final_price;
+      priceLine.textContent = priceText();
+      refreshPreview();
+    }
+    vatModeSel.addEventListener('change', () => { c.vat_mode = vatModeSel.value; applyTerms(); });
+    vatRateInp.addEventListener('change', () => { c.vat_rate = vatRateInp.value; applyTerms(); });
+    discTypeSel.addEventListener('change', () => { c.discount_type = discTypeSel.value; applyTerms(); });
+    discValInp.addEventListener('change', () => { c.discount_value = discValInp.value; applyTerms(); });
+
     // ---- templates ----
     const tplBar = h('div', { class: 'flex', style: 'flex-wrap:wrap;gap:6px' });
     function drawTemplates() {
@@ -606,7 +644,15 @@ export async function renderContractsTab(view) {
     }
 
     // ---- price + send ----
-    const priceText = () => `מחיר בסיס: ${fmtMoney(c.base_price)} · סופי (כולל תוספות שנבחרו): ${fmtMoney(c.final_price)}`;
+    const priceText = () => {
+      const p = c.price || { subtotal: c.final_price, discount_amount: 0, vat_mode: 'none', vat_amount: 0, total: c.final_price };
+      const bits = [`ביניים: ${fmtMoney(p.subtotal)}`];
+      if ((p.discount_amount || 0) > 0) bits.push(`הנחה: −${fmtMoney(p.discount_amount)}`);
+      if (p.vat_mode === 'added') bits.push(`מע"מ ${p.vat_rate}%: +${fmtMoney(p.vat_amount)}`);
+      else if (p.vat_mode === 'included') bits.push(`כולל מע"מ ${p.vat_rate}%`);
+      bits.push(`לתשלום: ${fmtMoney(p.total)}`);
+      return bits.join(' · ');
+    };
     const priceLine = h('p', { class: 'muted' }, priceText());
     const sendEmail = h('input', { type: 'email', dir: 'ltr', placeholder: c.lead?.email || 'מייל הלקוח', value: c.lead?.email || '' });
 
@@ -646,6 +692,7 @@ export async function renderContractsTab(view) {
         language: c.language, direction: c.direction,
       });
       c.final_price = resp.final_price; c.base_price = resp.base_price; c.status = resp.status;
+      c.price = resp.price;
       priceLine.textContent = priceText();
     }
     title.addEventListener('input', debounce(() => scheduleSave(), 500));
@@ -657,12 +704,19 @@ export async function renderContractsTab(view) {
         h('label', { class: 'field' }, h('span', {}, 'כותרת פנימית'), title),
         h('label', { class: 'field' }, h('span', {}, 'חבילה'), pkgSel.el)),
       h('details', { class: 'ce-settings' },
-        h('summary', {}, '⚙️ הגדרות (שפה, כיוון, חתימה)'),
+        h('summary', {}, '⚙️ הגדרות (שפה, כיוון, חתימה, מע"מ, הנחה)'),
         h('div', { class: 'grid-2' },
           h('label', { class: 'field' }, h('span', {}, 'שפה'), langSel),
           h('label', { class: 'field' }, h('span', {}, 'כיוון ברירת מחדל'), dirSel),
           h('label', { class: 'field' }, h('span', {}, 'חתימת הנהלה'), sigSel),
-          h('label', { class: 'field-check', style: 'align-self:end' }, reqSig, h('span', {}, '✍️ דרישת חתימת לקוח')))),
+          h('label', { class: 'field-check', style: 'align-self:end' }, reqSig, h('span', {}, '✍️ דרישת חתימת לקוח'))),
+        h('div', { class: 'ce-terms' },
+          h('h5', {}, '💰 מחיר, מע"מ והנחה'),
+          h('div', { class: 'grid-2' },
+            h('label', { class: 'field' }, h('span', {}, 'מע"מ'), vatModeSel),
+            h('label', { class: 'field' }, h('span', {}, 'שיעור מע"מ (%)'), vatRateInp),
+            h('label', { class: 'field' }, h('span', {}, 'הנחה'), discTypeSel),
+            h('label', { class: 'field' }, h('span', {}, 'סכום/אחוז הנחה'), discValInp)))),
       priceLine,
       tplBar,
       stickyBar,

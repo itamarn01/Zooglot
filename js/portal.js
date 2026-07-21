@@ -22,6 +22,8 @@ const STR = {
     needName: 'נא למלא שם', needSign: 'נא לחתום במסגרת', saved: 'הפרטים נשמרו ✓',
     signedMsg: 'ההצעה נחתמה! 🎉', approvedMsg: 'ההצעה אושרה! 🎉', badLink: 'קישור לא תקין',
     included: 'כלול',
+    subtotal: 'סכום ביניים', discountL: 'הנחה', vatL: 'מע"מ',
+    inclVat: 'כולל מע"מ', plusVat: 'לפני מע"מ',
   },
   en: {
     total: 'Total', signatures: 'Signatures & Approval', band: 'The band', client: 'Client',
@@ -32,6 +34,8 @@ const STR = {
     needName: 'Please enter a name', needSign: 'Please sign in the box', saved: 'Saved ✓',
     signedMsg: 'Signed! 🎉', approvedMsg: 'Approved! 🎉', badLink: 'Invalid link',
     included: 'Included',
+    subtotal: 'Subtotal', discountL: 'Discount', vatL: 'VAT',
+    inclVat: 'incl. VAT', plusVat: 'before VAT',
   },
 };
 
@@ -78,13 +82,6 @@ function brandLogo() {
   return img;
 }
 
-function eventLine() {
-  const l = contract.lead || {};
-  const parts = [];
-  if (l.event_date) parts.push(`${t.eventDate}: ${dfmt(l.event_date)}`);
-  if (l.event_location) parts.push(`${t.venue}: ${l.event_location}`);
-  return parts.length ? h('p', { class: 'prop-event' }, parts.join(' · ')) : null;
-}
 
 function renderSection(s, signed, onChange) {
   if (s.type === 'title') {
@@ -215,7 +212,7 @@ function signatureBlock(signed, reqSig, afterSign) {
           draw(); afterSign();
         } catch (e) { toast(e.message, 'error'); }
       },
-    }, `${reqSig ? t.sign : t.approve} · ${fmtMoney(contract.final_price)}`));
+    }, `${reqSig ? t.sign : t.approve} · ${fmtMoney((contract.price || {}).total ?? contract.final_price)}`));
   return card;
 }
 
@@ -254,8 +251,7 @@ function draw() {
   const signed = !!contract.client_signed_at;
   const reqSig = contract.require_client_signature !== false;
 
-  const priceBanner = h('div', { class: 'price-banner no-print' }, `${t.total}: ${fmtMoney(contract.final_price)}`);
-  const priceSummary = h('div', { class: 'prop-price' }, `${t.total}: ${fmtMoney(contract.final_price)}`);
+  const priceSummary = priceSection();
   const onChange = () => draw();
 
   const secs = contract.resolved_sections || [];
@@ -284,7 +280,6 @@ function draw() {
 
   const doc = h('div', { class: 'contract-paper proposal', id: 'proposal-doc', dir },
     headerBand(),
-    eventLine(),
     ...secEls,
     hasFieldsSection ? null : fieldsBlock(signed), // legacy fallback: before the price
     priceSummary,
@@ -296,8 +291,42 @@ function draw() {
   // spread, don't pass null: Element.append(null) would render the text "null"
   root.append(doc,
     ...(signed ? [h('button', { class: 'btn primary mt no-print', style: 'width:100%', onclick: downloadPdf }, t.download)] : []),
-    h('div', { class: 'mt' }), priceBanner,
     h('p', { class: 'muted no-print', style: 'text-align:center;margin-top:24px' }, 'להקת קולות · KOLOT · 055-5081080'));
+}
+
+// The TOTAL box: a breakdown (subtotal / discount / VAT) above the grand total.
+// With a discount the pre-discount subtotal is struck through. VAT shows as a
+// line when added on top, or as a "incl. VAT" note when the price already has it.
+function priceSection() {
+  const p = contract.price || { subtotal: contract.final_price, discount_amount: 0, vat_mode: 'none', total: contract.final_price };
+  const hasDiscount = (p.discount_amount || 0) > 0;
+  const lines = [];
+
+  if (hasDiscount) {
+    const dLabel = p.discount_type === 'percent' ? `${t.discountL} ${p.discount_value}%` : t.discountL;
+    lines.push(h('div', { class: 'pp-total-row' },
+      h('span', {}, t.subtotal),
+      h('s', { class: 'pp-strike' }, fmtMoney(p.subtotal))));
+    lines.push(h('div', { class: 'pp-total-row' },
+      h('span', {}, dLabel),
+      h('span', { class: 'pp-discount' }, `−${fmtMoney(p.discount_amount)}`)));
+  }
+  if (p.vat_mode === 'added') {
+    lines.push(h('div', { class: 'pp-total-row' },
+      h('span', {}, `${t.vatL} ${p.vat_rate}%`),
+      h('span', {}, `+${fmtMoney(p.vat_amount)}`)));
+  }
+
+  const totalRow = h('div', { class: 'prop-price' },
+    h('span', {}, t.total),
+    h('span', {}, fmtMoney(p.total)));
+  const vatNote = p.vat_mode === 'included'
+    ? h('div', { class: 'pp-vat-note' }, `${t.inclVat} ${p.vat_rate}% · ${fmtMoney(p.vat_amount)}`)
+    : null;
+
+  return h('div', { class: 'pp-total-wrap' },
+    lines.length ? h('div', { class: 'pp-total-lines' }, ...lines) : null,
+    totalRow, vatNote);
 }
 
 (async () => {

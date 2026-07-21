@@ -10,9 +10,15 @@
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@200;300;400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/main.css">
   <style>
+    /* KOLOT display face — used for the cyan header block and title-only sections */
+    @font-face {
+      font-family: 'Adam CG Pro';
+      src: url('/assets/fonts/ADAM.CG%20PRO.otf') format('opentype');
+      font-weight: normal; font-style: normal; font-display: swap;
+    }
     .portal-wrap { max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; }
     .portal-head { text-align: center; padding: 24px 0 8px; }
     .portal-head .logo { height: 72px; }
@@ -37,7 +43,8 @@
     }
     .prop-head-info {
       position: absolute; top: 16px; left: clamp(16px, 5vw, 40px); z-index: 2;
-      font-size: 12px; color: #fff; font-weight: 700; letter-spacing: 1px; line-height: 1.7;
+      font-family: 'Adam CG Pro', var(--font-head); font-size: 13px; color: #fff;
+      font-weight: 400; letter-spacing: 1.5px; line-height: 1.85;
       text-transform: uppercase; direction: ltr; text-align: left;
     }
     /* logo sits centred in the right 30% of the band */
@@ -50,7 +57,6 @@
     .prop-logo-fallback { color: #87CEDF; font-family: var(--font-head); line-height: 1; }
     .prop-logo-fallback b { display: block; font-size: 40px; letter-spacing: 2px; }
     .prop-logo-fallback span { font-size: 12px; letter-spacing: 4px; }
-    .prop-event { text-align: center; color: #4b6068; font-weight: 600; margin: 0 0 8px; }
 
     /* keep any pasted content (Word/Docs tables, images, long words) inside the page */
     .proposal { overflow-wrap: anywhere; }
@@ -59,8 +65,14 @@
     .proposal td, .proposal th { max-width: 100%; word-break: break-word; }
     .proposal :is(.prop-textblock, .pp-text, .pp-name, .pp-desc, .prop-section-label) { overflow-wrap: anywhere; word-break: break-word; }
 
-    /* typed sections */
-    .prop-titleblock { text-align: center; color: #0b2830; font-size: clamp(22px, 4.5vw, 32px); font-family: var(--font-head); margin: 10px 0 4px; }
+    /* typed sections. Adam CG Pro is Latin-only, so Hebrew glyphs fall back to
+       Assistant automatically (per-glyph) — Latin titles get the KOLOT look,
+       Hebrew names stay legible. No forced uppercase (a no-op on Hebrew). */
+    .prop-titleblock {
+      text-align: center; color: #0b2830; font-size: clamp(24px, 5vw, 36px);
+      font-family: 'Adam CG Pro', var(--font-head); letter-spacing: .5px; margin: 14px 0 6px;
+    }
+    .prop-titleblock :is(h1,h2,h3,p) { font-family: inherit; }
     .prop-titleblock :is(h1,h2,h3,p) { margin: 0; }
     .prop-textblock { color: #33454c; margin: 10px 0; }
     .prop-textblock.cols2 { column-count: 2; column-gap: 26px; }
@@ -68,7 +80,9 @@
     .prop-textblock h3 { color: #0b2830; margin: 12px 0 4px; }
 
     .prop-section { display: grid; grid-template-columns: 150px 1fr; gap: 16px; padding: 16px 0; border-top: 1px solid #e4ebee; }
-    .prop-section-label { color: #6b7c83; font-family: var(--font-head); font-size: 19px; }
+    /* side titles: Assistant ExtraLight, per the KOLOT proposal look */
+    .prop-section-label { color: #6b7c83; font-family: 'Assistant', sans-serif; font-weight: 200; font-size: 21px; }
+    .prop-section-label :is(h1,h2,h3,p,b,strong) { font-family: inherit; font-weight: 200; }
     .prop-section-body { display: flex; flex-direction: column; gap: 10px; }
     .prop-prod { display: flex; align-items: flex-start; gap: 8px; }
     .prop-prod.optional { border: 1px solid #e4ebee; border-radius: 10px; padding: 8px 10px; background: #f6fafb; cursor: pointer; }
@@ -99,11 +113,25 @@
     .sig-row input { flex: 1; min-width: 0; }
     .sig-row .btn { flex: none; white-space: nowrap; }
 
-    .prop-price {
-      margin-top: 18px; background: #0b2830; color: #f7c11e;
-      border-radius: 10px; padding: 14px 18px; text-align: center;
-      font-family: var(--font-head); font-size: 22px; font-weight: 800;
+    /* TOTAL box: a light breakdown card, then the dark grand-total bar */
+    .pp-total-wrap { margin-top: 20px; }
+    .pp-total-lines {
+      background: #f4f8f9; border: 1px solid #e4ebee; border-bottom: none;
+      border-radius: 10px 10px 0 0; padding: 12px 18px;
     }
+    .pp-total-row {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+      color: #33454c; font-size: 16px; padding: 3px 0;
+    }
+    .pp-strike { color: #90a1a8; }
+    .pp-discount { color: #c0392b; font-weight: 700; }
+    .prop-price {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+      background: #0b2830; color: #f7c11e; padding: 15px 18px;
+      border-radius: 10px; font-family: var(--font-head); font-size: 23px; font-weight: 800;
+    }
+    .pp-total-lines + .prop-price { border-radius: 0 0 10px 10px; }
+    .pp-vat-note { text-align: center; color: #6b7c83; font-size: 12.5px; margin-top: 6px; }
     .prop-field { padding: 3px 0; }
 
     /* preview-only floating "+ add section" control */
@@ -121,12 +149,6 @@
 
     .opt-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; background: var(--bg-soft); }
     .opt-row input { width: auto; }
-    .price-banner {
-      position: sticky; bottom: 12px; z-index: 30;
-      background: var(--brand); color: var(--brand-ink);
-      border-radius: 12px; padding: 14px 20px; text-align: center;
-      font-family: var(--font-head); font-size: 20px; box-shadow: var(--shadow);
-    }
     .sig-img { max-height: 70px; background: #fff; border-radius: 8px; padding: 4px 10px; }
 
     /* interactive cards live inside the white paper → keep them light (and PDF-safe) */

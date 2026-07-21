@@ -414,6 +414,9 @@ table.board.grid th:last-child, table.board.grid td:last-child { padding-inline-
   .ce-frame { height: 60vh; }
 }
 .ce-settings summary { cursor: pointer; color: var(--muted); font-size: 13px; margin: 4px 0; }
+.ce-terms { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.ce-terms h5 { margin: 0 0 6px; font-size: 13px; color: var(--text-dim); }
+.ce-terms input:disabled, .ce-terms select:disabled { opacity: .45; }
 .rich {
   min-height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
   background: #fff; color: #16232a; font-family: var(--font-body); line-height: 1.6;
