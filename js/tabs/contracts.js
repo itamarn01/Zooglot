@@ -538,13 +538,19 @@ export async function renderContractsTab(view) {
       toast('החבילה עודכנה ✓', 'success');
     });
 
-    const sigSel = h('select', {}, h('option', { value: '' }, '— חתימת הנהלה —'),
-      ...signatures.map(s => h('option', { value: s.id, selected: c.management_signature_id === s.id }, s.name)));
-    sigSel.addEventListener('change', async () => {
-      ({ contract: c } = await patch(`/contracts/${c.id}`, { management_signature_id: sigSel.value || null }));
-      c.sections = c.sections || []; c.fields = c.fields || [];
-      refreshPreview(); toast('חתימת ההנהלה עודכנה ✓', 'success');
-    });
+    // up to two management signatories — a select each
+    const mkSigSel = (key) => {
+      const sel = h('select', {}, h('option', { value: '' }, '— חתימת הנהלה —'),
+        ...signatures.map(s => h('option', { value: s.id, selected: c[key] === s.id }, s.name)));
+      sel.addEventListener('change', async () => {
+        ({ contract: c } = await patch(`/contracts/${c.id}`, { [key]: sel.value || null }));
+        c.sections = c.sections || []; c.fields = c.fields || [];
+        refreshPreview(); toast('חתימת ההנהלה עודכנה ✓', 'success');
+      });
+      return sel;
+    };
+    const sigSel = mkSigSel('management_signature_id');
+    const sigSel2 = mkSigSel('management_signature_id_2');
 
     const reqSig = h('input', { type: 'checkbox', checked: c.require_client_signature !== false });
     reqSig.addEventListener('change', async () => {
@@ -626,18 +632,35 @@ export async function renderContractsTab(view) {
       ensureFieldsSection();
       await saveAll(); drawSections(); refreshPreview(); toast('התבנית הוחלה ✓', 'success');
     }
+    const templateData = () => ({
+      language: c.language, direction: c.direction, sections: c.sections,
+      fields: c.fields, require_client_signature: c.require_client_signature,
+    });
     function saveAsTemplate() {
+      // choose: overwrite an existing template, or save as a new one
+      const targetSel = h('select', {},
+        h('option', { value: '' }, '➕ תבנית חדשה'),
+        ...templates.map(t => h('option', { value: t.id }, `♻️ עדכון: ${t.name}`)));
       const nameInput = h('input', { type: 'text', placeholder: 'שם התבנית' });
-      modal('שמירת תבנית', h('div', {}, h('label', { class: 'field' }, h('span', {}, 'שם'), nameInput)), {
+      const nameRow = h('label', { class: 'field' }, h('span', {}, 'שם'), nameInput);
+      // when overwriting, prefill + hide the name (kept unless renamed)
+      targetSel.addEventListener('change', () => {
+        const t = templates.find(x => x.id === targetSel.value);
+        nameInput.value = t ? t.name : '';
+        nameRow.style.display = targetSel.value ? 'none' : '';
+      });
+      modal('שמירת תבנית', h('div', {},
+        h('label', { class: 'field' }, h('span', {}, 'יעד'), targetSel), nameRow), {
         actions: [
           {
             label: 'שמירה', kind: 'primary', onclick: async (close) => {
-              if (!nameInput.value.trim()) { toast('שם חובה', 'error'); return false; }
               await saveAll();
-              await post('/contracts/templates', {
-                name: nameInput.value.trim(),
-                data: { language: c.language, direction: c.direction, sections: c.sections, fields: c.fields, require_client_signature: c.require_client_signature },
-              });
+              if (targetSel.value) {
+                await patch(`/contracts/templates/${targetSel.value}`, { data: templateData() });
+              } else {
+                if (!nameInput.value.trim()) { toast('שם חובה', 'error'); return false; }
+                await post('/contracts/templates', { name: nameInput.value.trim(), data: templateData() });
+              }
               ({ templates } = await get('/contracts/templates')); drawTemplates();
               close(); toast('התבנית נשמרה ✓', 'success');
             },
@@ -712,7 +735,8 @@ export async function renderContractsTab(view) {
         h('div', { class: 'grid-2' },
           h('label', { class: 'field' }, h('span', {}, 'שפה'), langSel),
           h('label', { class: 'field' }, h('span', {}, 'כיוון ברירת מחדל'), dirSel),
-          h('label', { class: 'field' }, h('span', {}, 'חתימת הנהלה'), sigSel),
+          h('label', { class: 'field' }, h('span', {}, 'חתימת הנהלה 1'), sigSel),
+          h('label', { class: 'field' }, h('span', {}, 'חתימת הנהלה 2 (אופציונלי)'), sigSel2),
           h('label', { class: 'field-check', style: 'align-self:end' }, reqSig, h('span', {}, '✍️ דרישת חתימת לקוח'))),
         h('div', { class: 'ce-terms' },
           h('h5', {}, '💰 מחיר, מע"מ והנחה'),

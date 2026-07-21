@@ -203,10 +203,14 @@ async function saveFields() {
 
 function signatureBlock(signed, reqSig, afterSign) {
   const card = h('div', { class: 'card mt' }, h('h3', {}, `✍️ ${t.signatures}`));
+  const mgmtSigs = contract.management_signatures
+    || (contract.management_signature ? [contract.management_signature] : []);
   const rowMgmt = h('div', {},
     h('p', { class: 'muted' }, t.band),
-    contract.management_signature
-      ? h('img', { class: 'sig-img', src: contract.management_signature.image_data, alt: t.band })
+    mgmtSigs.length
+      ? h('div', { class: 'sig-list' }, ...mgmtSigs.map(s => h('div', { class: 'sig-one' },
+        h('img', { class: 'sig-img', src: s.image_data, alt: s.name || t.band }),
+        s.name ? h('div', { class: 'muted', style: 'font-size:12px' }, s.name) : null)))
       : h('p', { class: 'muted' }, t.willSign));
 
   if (signed) {

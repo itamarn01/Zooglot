@@ -360,6 +360,17 @@ table.board.grid th:last-child, table.board.grid td:last-child { padding-inline-
 .update-item .meta { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
 .update-item .body-text { white-space: pre-wrap; font-size: 14px; }
 
+/* ---------- WhatsApp chat thread (messaging-app bubbles) ---------- */
+.wa-chat { display: flex; flex-direction: column; gap: 6px; padding: 4px 2px; }
+.wa-msg {
+  max-width: 78%; padding: 7px 11px; border-radius: 12px; font-size: 14px;
+  white-space: pre-wrap; word-break: break-word; position: relative; line-height: 1.5;
+}
+.wa-msg.in { align-self: flex-start; background: var(--surface-2); border: 1px solid var(--line); border-start-start-radius: 3px; }
+.wa-msg.out { align-self: flex-end; background: #075e54; color: #eafff7; border-start-end-radius: 3px; }
+.wa-msg .wa-time { font-size: 10.5px; opacity: .7; margin-top: 3px; text-align: end; }
+.drawer footer textarea { flex: 1; resize: none; min-height: 38px; }
+
 /* ---------- packages: included / optional zones ---------- */
 .dropzone {
   border: 1px solid var(--line); border-radius: 12px; padding: 10px; min-height: 70px;

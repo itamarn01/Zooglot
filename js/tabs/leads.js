@@ -745,7 +745,7 @@ async function openUpdatesDrawer(lead, initialTab = 'updates') {
   const tabsBar = h('div', { class: 'drawer-tabs' });
   const drawTabs = () => {
     tabsBar.innerHTML = '';
-    for (const [id, label] of [['updates', '💬 עדכונים'], ['card', '🪪 כרטיס'], ['reminders', '⏰ תזכורות']]) {
+    for (const [id, label] of [['updates', '💬 עדכונים'], ['card', '🪪 כרטיס'], ['reminders', '⏰ תזכורות'], ['whatsapp', '🟢 וואטסאפ']]) {
       tabsBar.append(h('button', {
         class: tab === id ? 'active' : '',
         onclick: () => { tab = id; drawTabs(); renderTab(); },
@@ -758,7 +758,49 @@ async function openUpdatesDrawer(lead, initialTab = 'updates') {
     footerEl.innerHTML = '';
     if (tab === 'updates') await renderUpdatesTab();
     else if (tab === 'card') renderCardTab();
+    else if (tab === 'whatsapp') await renderWhatsappTab();
     else await renderRemindersTab();
+  }
+
+  // ---- WhatsApp thread: chat bubbles + send box ----
+  async function renderWhatsappTab() {
+    const dfmt = (d) => new Date(d).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const paint = (messages, wa) => {
+      bodyEl.innerHTML = '';
+      const chat = h('div', { class: 'wa-chat' });
+      if (!messages.length) {
+        chat.append(h('p', { class: 'muted', style: 'text-align:center;margin-top:20px' }, 'אין הודעות וואטסאפ לליד הזה עדיין.'));
+      }
+      for (const m of messages) {
+        chat.append(h('div', { class: `wa-msg ${m.direction === 'out' ? 'out' : 'in'}` },
+          h('div', { class: 'wa-body' }, m.body || ''),
+          h('div', { class: 'wa-time' }, dfmt(m.created_at))));
+      }
+      bodyEl.append(chat);
+      bodyEl.scrollTop = bodyEl.scrollHeight;
+      // reflect connection state in the footer
+      footerEl.innerHTML = '';
+      const ta = h('textarea', { rows: 1, placeholder: wa.connected ? 'הודעת וואטסאפ…' : 'וואטסאפ אינו מחובר (הגדרות → וואטסאפ)' });
+      const sendBtn = h('button', {
+        class: 'btn primary', disabled: !wa.connected,
+        onclick: withBusy(async () => {
+          if (!ta.value.trim()) return;
+          try {
+            await post(`/leads/${lead.id}/messages`, { body: ta.value.trim() });
+            ta.value = '';
+            const fresh = await get(`/leads/${lead.id}/messages`);
+            paint(fresh.messages, fresh.wa);
+          } catch (e) { toast(e.message, 'error'); }
+        }),
+      }, 'שליחה');
+      footerEl.append(h('div', { class: 'flex' }, ta, sendBtn));
+    };
+    try {
+      const { messages, wa } = await get(`/leads/${lead.id}/messages`);
+      paint(messages, wa);
+    } catch (e) {
+      bodyEl.append(h('p', { class: 'muted' }, e.message));
+    }
   }
 
   // ---- updates thread ----
