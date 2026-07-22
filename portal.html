@@ -15,8 +15,11 @@
   <style>
     /* Stop iOS Safari from auto-inflating text: the proposal is a fixed 794px
        page zoomed to fit, and without this Safari enlarges the text on narrow
-       screens, breaking the PDF-exact proportions. */
-    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+       screens, breaking the PDF-exact proportions. Applied broadly so no block
+       re-enables it. */
+    html, body, .proposal, .contract-paper {
+      -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+    }
     /* KOLOT display face — used for the cyan header block and title-only sections */
     @font-face {
       font-family: 'Adam CG Pro';
@@ -41,29 +44,28 @@
     .contract-paper > *:not(.prop-head) { margin-inline: 44px; }
 
     /* ---- PDF-style proposal (mirrors the KOLOT price proposal) ---- */
+    /* Flex layout (not absolute positioning): absolutely-positioned children do
+       not scale cleanly under CSS `zoom` in Safari, which threw the header out
+       of proportion. The cyan triangle is a background; text + logo flow on top. */
     .prop-head {
-      position: relative; height: 140px; margin: 0 0 18px; overflow: hidden;
-      background: #fff;
+      position: relative; height: 150px; margin: 0 0 18px; overflow: hidden; background: #fff;
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+      padding: 16px 22px 0 30px;
     }
-    /* cyan right-triangle sitting on the top-left corner (as in the PDF); the
-       right angle is at the corner, the hypotenuse runs down to the bottom-left.
-       The logo lives in the free space on the right. */
+    /* cyan right-triangle sitting on the top-left corner (as in the PDF) */
     .prop-head-tri {
-      position: absolute; inset: 0; background: #87CEDF;
+      position: absolute; inset: 0; z-index: 0; background: #87CEDF;
       clip-path: polygon(0 0, 70% 0, 0 100%);
     }
     .prop-head-info {
-      position: absolute; top: 14px; left: 34px; z-index: 2;
-      font-family: 'Adam CG Pro', var(--font-head); font-size: 13px; color: #fff;
-      font-weight: 400; letter-spacing: 1px; line-height: 1.5;
-      text-transform: uppercase; direction: ltr; text-align: left;
+      position: relative; z-index: 2; max-width: 56%;
+      font-family: 'Adam CG Pro', var(--font-head); font-size: 11px; color: #fff;
+      font-weight: 400; letter-spacing: .4px; line-height: 1.6;
+      text-transform: uppercase; direction: ltr; text-align: left; white-space: nowrap;
     }
-    /* logo sits centred in the right 30% of the band */
-    .prop-head-brand {
-      position: absolute; top: 50%; transform: translateY(-50%);
-      right: 24px; z-index: 2; width: 28%; text-align: center;
-    }
-    .prop-logo { width: 100%; max-height: 112px; height: auto; object-fit: contain; display: block; margin: 0 auto; }
+    /* logo centred in the free space on the right */
+    .prop-head-brand { position: relative; z-index: 2; width: 26%; align-self: center; text-align: center; }
+    .prop-logo { width: 100%; max-height: 108px; height: auto; object-fit: contain; display: block; margin: 0 auto; }
     /* shown only if the SVG fails to load, so the brand is never simply missing */
     .prop-logo-fallback { color: #87CEDF; font-family: var(--font-head); line-height: 1; }
     .prop-logo-fallback b { display: block; font-size: 40px; letter-spacing: 2px; }
