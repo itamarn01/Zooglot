@@ -37,8 +37,11 @@
        LEFT edge (x=0) even for RTL contracts. Otherwise an RTL containing block
        right-aligns the 794px page and it overflows to the left — then
        transform-origin:top-left scales it off-screen (black page on mobile,
-       clipped/shifted in the preview). The page keeps its own dir="rtl". */
-    .page-fit { overflow-x: hidden; direction: ltr; text-align: left; }
+       clipped/shifted in the preview). The page keeps its own dir="rtl".
+       NB: do NOT set text-align here — it inherits into the RTL page and would
+       left-align Hebrew text. direction:ltr alone fixes the block positioning;
+       text-align stays `start` so RTL content aligns right. */
+    .page-fit { overflow-x: hidden; direction: ltr; }
     .contract-paper {
       width: 794px; margin: 0 auto; /* A4 @96dpi; JS zooms this element to fit */
       background: #fff; color: #16232a; border-radius: 14px; padding: 0 0 32px;
