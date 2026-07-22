@@ -179,11 +179,28 @@
       max-height: 82vh; overflow-y: auto; transform: translateY(112%); transition: transform .25s ease;
     }
     .data-sheet.open { transform: translateY(0); }
-    .data-sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .data-sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
+      position: sticky; top: -16px; background: #fff; padding-top: 4px; z-index: 2; }
     .data-sheet-head b { font-size: 18px; color: #0b2830; }
-    .data-sheet-body { display: grid; gap: 10px; margin-bottom: 14px; }
-    .data-sheet .field span { color: #4b6068; font-size: 13px; }
-    .data-sheet input { background: #fff; color: #16232a; border: 1px solid #cdd8dc; border-radius: 8px; padding: 9px 11px; width: 100%; }
+    .data-sheet-body { display: grid; gap: 14px; margin-bottom: 14px; }
+    .data-sheet .field { display: grid; gap: 5px; }
+    .data-sheet .field span { color: #4b6068; font-size: 14px; font-weight: 600; }
+    /* 16px font stops iOS Safari from zooming the page when an input is focused;
+       roomy padding + min-height makes each field an easy phone tap target */
+    .data-sheet input {
+      background: #fff; color: #16232a; border: 1px solid #cdd8dc; border-radius: 10px;
+      padding: 12px 13px; width: 100%; font-size: 16px; min-height: 48px; box-sizing: border-box;
+    }
+    .data-sheet input:focus { outline: none; border-color: #86cdde; box-shadow: 0 0 0 3px rgba(134,205,222,.35); }
+    /* dates read left-to-right even on the RTL sheet; native picker kept intact */
+    .data-sheet input[type="date"] { direction: ltr; text-align: start; }
+    /* sticky save footer — always reachable however long the field list is
+       (the sheet's own bottom padding keeps it clear of the home indicator) */
+    .data-sheet-foot {
+      position: sticky; bottom: 0; background: #fff;
+      padding: 10px 0 4px; margin-top: 4px; border-top: 1px solid #eef2f4;
+    }
+    .data-sheet-foot .btn { min-height: 50px; font-size: 16px; }
 
     /* mobile: tighter desk margins around the scaled A4 sheet */
     @media (max-width: 640px) {

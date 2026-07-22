@@ -48,6 +48,34 @@ const STR = {
 // opener for the floating data-entry sheet, wired up in draw()
 let openDataEntry = () => {};
 
+// The signer's full name is offered inside the fill-in sheet (not only at the
+// signature box) so everything is entered in one place. Kept in localStorage so
+// it survives a refresh and pre-fills the signature name field.
+const SIGNER_KEY = 'zooglot_signer_' + (token || '');
+let signerName = '';
+try { signerName = localStorage.getItem(SIGNER_KEY) || ''; } catch { /* private mode */ }
+function setSignerName(v) {
+  signerName = v || '';
+  try { localStorage.setItem(SIGNER_KEY, signerName); } catch { /* ignore */ }
+}
+
+// Which fill-in fields are dates (→ native calendar picker). Lead-bound *_date
+// fields, or any field whose label mentions a date.
+const DATE_LEAD_FIELDS = ['event_date', 'wedding_date', 'today'];
+function isDateField(f) {
+  if (f.lead_field && (DATE_LEAD_FIELDS.includes(f.lead_field) || /_date$/.test(f.lead_field))) return true;
+  return /תאריך|\bdate\b/i.test(f.label || '');
+}
+// Normalise any stored value to the yyyy-mm-dd that <input type="date"> needs.
+function toDateInputValue(v) {
+  if (!v) return '';
+  const s = String(v);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const d = new Date(s);
+  return isNaN(d) ? '' : d.toISOString().slice(0, 10);
+}
+
 async function api(path, opts = {}) {
   const rsp = await fetch(`${API_BASE}/api/portal/${token}${path}`, {
     method: opts.method || 'GET',
@@ -208,8 +236,13 @@ function fieldsBlock(signed) {
 async function saveFields() {
   const values = {};
   root.querySelectorAll('input[data-key]').forEach(i => { values[i.dataset.key] = i.value; });
-  try { ({ contract } = await api('/fields', { method: 'PATCH', body: { values } })); toast(t.saved, 'success'); }
-  catch (e) { toast(e.message, 'error'); }
+  const signerInput = root.querySelector('input[data-signer]');
+  if (signerInput) setSignerName(signerInput.value);
+  try {
+    ({ contract } = await api('/fields', { method: 'PATCH', body: { values } }));
+    toast(t.saved, 'success');
+    draw(); // re-render so the saved values show on the page immediately (no refresh)
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 function signatureBlock(signed, reqSig, afterSign) {
@@ -235,7 +268,10 @@ function signatureBlock(signed, reqSig, afterSign) {
     return card;
   }
 
-  const nameInput = h('input', { type: 'text', placeholder: t.namePh });
+  const nameInput = h('input', {
+    type: 'text', placeholder: t.namePh, value: signerName,
+    oninput: (e) => setSignerName(e.target.value),
+  });
   const controls = h('div', { class: 'no-print' });
   let pad = null;
   if (reqSig) {
@@ -385,25 +421,40 @@ window.addEventListener('resize', () => fitPage());
 // editable fields. Keeps the document itself input-free so it reads like a page.
 function dataEntryPanel(fields) {
   openDataEntry = () => {};
-  if (!fields.length) return null;
+  // the signer's name is offered here too (until signed), so the client fills
+  // everything — details + who is signing — from one comfortable place
+  const showSigner = !contract.client_signed_at;
+  if (!fields.length && !showSigner) return null;
 
   const body = h('div', { class: 'data-sheet-body' });
+  if (showSigner) {
+    body.append(h('label', { class: 'field' }, h('span', {}, t.namePh),
+      h('input', {
+        type: 'text', value: signerName, dataset: { signer: '1' },
+        placeholder: t.namePh, oninput: (e) => setSignerName(e.target.value),
+      })));
+  }
   for (const f of fields) {
+    const date = isDateField(f);
     body.append(h('label', { class: 'field' }, h('span', {}, f.label),
-      h('input', { type: 'text', value: f.value || '', dataset: { key: f.key } })));
+      h('input', {
+        type: date ? 'date' : 'text',
+        value: date ? toDateInputValue(f.value) : (f.value || ''),
+        dataset: { key: f.key },
+      })));
   }
   const sheet = h('div', { class: 'data-sheet no-print' },
     h('div', { class: 'data-sheet-head' },
       h('b', {}, t.fillDetails),
       h('button', { class: 'icon-btn', onclick: () => sheet.classList.remove('open') }, '✕')),
     body,
-    h('button', {
-      class: 'btn primary', style: 'width:100%',
-      onclick: async () => { await saveFields(); sheet.classList.remove('open'); },
-    }, t.done));
+    // sticky footer so the save button is always reachable on a phone
+    h('div', { class: 'data-sheet-foot' },
+      h('button', { class: 'btn primary', style: 'width:100%', onclick: () => saveFields() }, t.done)));
 
+  const count = fields.length + (showSigner ? 1 : 0);
   const fab = h('button', { class: 'data-fab no-print', onclick: () => sheet.classList.toggle('open') },
-    `${t.fillCta} (${fields.length})`);
+    `${t.fillCta} (${count})`);
   openDataEntry = () => sheet.classList.add('open');
   return h('div', {}, fab, sheet);
 }
