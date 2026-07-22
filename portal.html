@@ -26,9 +26,9 @@
        scaled to fit the screen by JS (see fitPage), so the mobile view is a true
        scaled-down copy of the desktop/PDF — never a reflowed one. Everything
        inside therefore uses fixed px (no vw / viewport media queries). */
-    .page-fit { overflow: hidden; }
+    .page-fit { overflow-x: hidden; }
     .contract-paper {
-      width: 794px; /* A4 @96dpi; JS scales this element to fit */
+      width: 794px; margin: 0 auto; /* A4 @96dpi; JS zooms this element to fit */
       background: #fff; color: #16232a; border-radius: 14px; padding: 0 0 32px;
       box-shadow: var(--shadow); line-height: 1.8; overflow: hidden;
     }

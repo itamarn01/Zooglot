@@ -266,8 +266,9 @@ function downloadPdf() {
   const el = document.getElementById('proposal-doc');
   if (!el || !window.html2pdf) { toast('לא ניתן ליצור PDF במכשיר זה', 'error'); return; }
   // capture at the full unscaled page width, then restore the on-screen fit
-  const tf = el.style.transform, ml = el.style.marginLeft;
-  el.style.transform = 'none'; el.style.marginLeft = '0';
+  const z = el.style.zoom;
+  el.style.zoom = '';
+  const restore = () => { el.style.zoom = z; fitPage(); };
   window.html2pdf().set({
     margin: [8, 8, 8, 8],
     filename: `${contract.language === 'en' ? 'Proposal' : 'הצעת מחיר'} - ${contract.lead?.name || 'KOLOT'}.pdf`,
@@ -275,8 +276,7 @@ function downloadPdf() {
     html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', ignoreElements: (n) => n.classList?.contains('no-print') },
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
     pagebreak: { mode: ['css', 'legacy'] },
-  }).from(el).save().then(() => { el.style.transform = tf; el.style.marginLeft = ml; fitPage(); })
-    .catch(() => { el.style.transform = tf; el.style.marginLeft = ml; fitPage(); });
+  }).from(el).save().then(restore).catch(restore);
 }
 
 // floating "+ add section here" control (preview/edit mode only)
@@ -307,12 +307,9 @@ function draw() {
 
   const secs = contract.resolved_sections || [];
   const hasFieldsSection = secs.some(s => s.type === 'fields');
-  // legacy: if a fields section has no fields of its own, seed the first one from
-  // the old global fields so nothing is lost until the band re-saves the contract
-  if ((contract.client_fields || []).length) {
-    const firstEmpty = secs.find(s => s.type === 'fields' && !(s.fields || []).length);
-    if (firstEmpty) firstEmpty.fields = contract.client_fields;
-  }
+  // NB: each 'fields' section resolves its OWN fields on the backend, so they are
+  // fully independent. (We must NOT seed an empty section from the aggregate
+  // client_fields — that duplicated every field into each new fields section.)
   const secEls = [addPoint(0)];
   secs.forEach((s, i) => {
     const el = renderSection(s, signed, onChange);
@@ -355,24 +352,21 @@ function draw() {
     ...(dataEntry ? [dataEntry] : []));
 
   fitPage();
+  requestAnimationFrame(fitPage); // once layout has settled (first paint width)
 }
 
 // Scale the fixed-width proposal page so it fits its container while staying a
-// pixel-exact copy of the desktop layout (like viewing a PDF). Re-run on resize,
-// and after the logo image loads (which changes the page height).
+// pixel-exact copy of the desktop layout (like viewing a PDF). CSS `zoom` scales
+// the element in layout (no height/transform hacks needed) and is natively
+// supported in Safari/Chrome — the transform approach collapsed on mobile.
 const PAGE_W = 794;
 function fitPage() {
   const doc = document.getElementById('proposal-doc');
   const fit = doc?.parentElement;
   if (!doc || !fit) return;
-  doc.style.transform = 'none';
-  doc.style.marginLeft = '0';
   const avail = fit.clientWidth;
-  const scale = Math.min(1, avail / PAGE_W);
-  doc.style.transformOrigin = 'top left';
-  doc.style.transform = `scale(${scale})`;
-  doc.style.marginLeft = `${Math.max(0, (avail - PAGE_W * scale) / 2)}px`;
-  fit.style.height = `${doc.offsetHeight * scale}px`; // offsetHeight is unscaled
+  if (!avail) return; // not laid out yet — a later refit will handle it
+  doc.style.zoom = String(Math.min(1, avail / PAGE_W));
 }
 window.addEventListener('resize', () => fitPage());
 
