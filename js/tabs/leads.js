@@ -781,6 +781,21 @@ async function openUpdatesDrawer(lead, initialTab = 'updates') {
       // reflect connection state in the footer
       footerEl.innerHTML = '';
       const ta = h('textarea', { rows: 1, placeholder: wa.connected ? 'הודעת וואטסאפ…' : 'וואטסאפ אינו מחובר (הגדרות → וואטסאפ)' });
+
+      // insert an emoji at the caret (or append) and keep focus
+      const insertEmoji = (emo) => {
+        const s = ta.selectionStart ?? ta.value.length;
+        const e = ta.selectionEnd ?? ta.value.length;
+        ta.value = ta.value.slice(0, s) + emo + ta.value.slice(e);
+        const pos = s + emo.length;
+        ta.focus(); ta.setSelectionRange(pos, pos);
+      };
+      const EMOJIS = ['😀', '😊', '😍', '👍', '🙏', '🎉', '🎷', '🎶', '❤️', '🔥', '✨', '😅', '🙌', '💪', '👏', '😎', '🥂', '💍', '📅', '✅', '😢', '🤔', '📞', '💬'];
+      const palette = h('div', { class: 'emoji-palette' },
+        ...EMOJIS.map(e => h('button', { type: 'button', class: 'emoji-btn', onclick: () => insertEmoji(e) }, e)));
+      palette.style.display = 'none';
+      const emojiToggle = h('button', { type: 'button', class: 'btn sm', title: 'אימוג׳י', onclick: () => { palette.style.display = palette.style.display === 'none' ? 'flex' : 'none'; } }, '😊');
+
       const sendBtn = h('button', {
         class: 'btn primary', disabled: !wa.connected,
         onclick: withBusy(async () => {
@@ -793,7 +808,7 @@ async function openUpdatesDrawer(lead, initialTab = 'updates') {
           } catch (e) { toast(e.message, 'error'); }
         }),
       }, 'שליחה');
-      footerEl.append(h('div', { class: 'flex' }, ta, sendBtn));
+      footerEl.append(palette, h('div', { class: 'flex' }, emojiToggle, ta, sendBtn));
     };
     try {
       const { messages, wa } = await get(`/leads/${lead.id}/messages`);

@@ -376,6 +376,9 @@ table.board.grid th:last-child, table.board.grid td:last-child { padding-inline-
 .wa-msg.out { align-self: flex-end; background: #075e54; color: #eafff7; border-start-end-radius: 3px; }
 .wa-msg .wa-time { font-size: 10.5px; opacity: .7; margin-top: 3px; text-align: end; }
 .drawer footer textarea { flex: 1; resize: none; min-height: 38px; }
+.emoji-palette { display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: 8px; max-height: 120px; overflow-y: auto; }
+.emoji-btn { background: none; border: none; cursor: pointer; font-size: 20px; padding: 3px 5px; border-radius: 6px; line-height: 1; }
+.emoji-btn:hover { background: var(--bg-soft); }
 
 /* ---------- packages: included / optional zones ---------- */
 .dropzone {

@@ -104,12 +104,17 @@ export async function renderSettingsTab(view, state) {
 
     async function poll() {
       if (!box.isConnected) { clearTimeout(timer); return; } // stopped viewing settings
+      clearTimeout(timer);
       try {
         const st = await get('/settings/whatsapp');
         render(st);
-        clearTimeout(timer);
+        // keep polling only while still pairing/connecting
         if (st.enabled && st.installed !== false && !st.connected) timer = setTimeout(poll, 2500);
-      } catch { /* transient — try again shortly */ clearTimeout(timer); timer = setTimeout(poll, 4000); }
+      } catch (e) {
+        // don't get stuck on "checking" — show an actionable state and retry
+        render({ enabled: integrations.whatsapp, error: 'לא ניתן לבדוק חיבור כרגע' });
+        timer = setTimeout(poll, 4000);
+      }
     }
 
     render({ enabled: integrations.whatsapp, checking: true });

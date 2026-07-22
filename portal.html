@@ -22,12 +22,18 @@
     .portal-wrap { max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; }
     .portal-head { text-align: center; padding: 24px 0 8px; }
     .portal-head .logo { height: 72px; }
+    /* The proposal is rendered at a FIXED page width (like an A4 sheet) and then
+       scaled to fit the screen by JS (see fitPage), so the mobile view is a true
+       scaled-down copy of the desktop/PDF — never a reflowed one. Everything
+       inside therefore uses fixed px (no vw / viewport media queries). */
+    .page-fit { overflow: hidden; }
     .contract-paper {
+      width: 794px; /* A4 @96dpi; JS scales this element to fit */
       background: #fff; color: #16232a; border-radius: 14px; padding: 0 0 32px;
       box-shadow: var(--shadow); line-height: 1.8; overflow: hidden;
     }
     .contract-paper h2, .contract-paper h3 { color: #0b2830; font-family: var(--font-head); }
-    .contract-paper > *:not(.prop-head) { margin-inline: clamp(18px, 5vw, 44px); }
+    .contract-paper > *:not(.prop-head) { margin-inline: 44px; }
 
     /* ---- PDF-style proposal (mirrors the KOLOT price proposal) ---- */
     .prop-head {
@@ -42,15 +48,15 @@
       clip-path: polygon(0 0, 70% 0, 0 100%);
     }
     .prop-head-info {
-      position: absolute; top: 14px; left: clamp(16px, 5vw, 40px); z-index: 2;
+      position: absolute; top: 14px; left: 34px; z-index: 2;
       font-family: 'Adam CG Pro', var(--font-head); font-size: 13px; color: #fff;
-      font-weight: 400; letter-spacing: 1.2px; line-height: 1.45;
+      font-weight: 400; letter-spacing: 1px; line-height: 1.5;
       text-transform: uppercase; direction: ltr; text-align: left;
     }
     /* logo sits centred in the right 30% of the band */
     .prop-head-brand {
       position: absolute; top: 50%; transform: translateY(-50%);
-      right: clamp(10px, 2.5vw, 26px); z-index: 2; width: 28%; text-align: center;
+      right: 24px; z-index: 2; width: 28%; text-align: center;
     }
     .prop-logo { width: 100%; max-height: 112px; height: auto; object-fit: contain; display: block; margin: 0 auto; }
     /* shown only if the SVG fails to load, so the brand is never simply missing */
@@ -69,14 +75,13 @@
        Assistant automatically (per-glyph) — Latin titles get the KOLOT look,
        Hebrew names stay legible. No forced uppercase (a no-op on Hebrew). */
     .prop-titleblock {
-      text-align: center; color: #0b2830; font-size: clamp(24px, 5vw, 36px);
+      text-align: center; color: #0b2830; font-size: 34px;
       font-family: 'Adam CG Pro', var(--font-head); letter-spacing: .5px; margin: 14px 0 6px;
     }
     .prop-titleblock :is(h1,h2,h3,p) { font-family: inherit; }
     .prop-titleblock :is(h1,h2,h3,p) { margin: 0; }
     .prop-textblock { color: #33454c; margin: 10px 0; }
     .prop-textblock.cols2 { column-count: 2; column-gap: 26px; }
-    @media (max-width: 560px) { .prop-textblock.cols2 { column-count: 1; } }
     .prop-textblock h3 { color: #0b2830; margin: 12px 0 4px; }
 
     .prop-section { display: grid; grid-template-columns: 150px 1fr; gap: 16px; padding: 16px 0; border-top: 1px solid #e4ebee; }
@@ -102,15 +107,9 @@
     .pp-text.cols2 { column-count: 2; column-gap: 20px; }
     .prop-section-body.cols2 { display: block; column-count: 2; column-gap: 20px; }
     .prop-section-body.cols2 .prop-prod { break-inside: avoid; margin-bottom: 10px; }
-    @media (max-width: 560px) { .pp-text.cols2, .prop-section-body.cols2 { column-count: 1; } }
     /* preview edit mode: clicking a section jumps to it in the editor */
     .edit-clickable { cursor: pointer; }
     .edit-clickable:hover { outline: 2px dashed #86cdde; outline-offset: 3px; border-radius: 6px; }
-    /* keep the side titles as a real side column on phones too — just narrower */
-    @media (max-width: 560px) {
-      .prop-section { grid-template-columns: 88px 1fr; gap: 10px; padding: 12px 0; }
-      .prop-section-label { font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; }
-    }
 
     /* signature row: the name field flexes, "Clear" never wraps mid-word */
     .sig-row { display: flex; gap: 8px; align-items: center; }
@@ -163,10 +162,9 @@
     .data-sheet .field span { color: #4b6068; font-size: 13px; }
     .data-sheet input { background: #fff; color: #16232a; border: 1px solid #cdd8dc; border-radius: 8px; padding: 9px 11px; width: 100%; }
 
-    /* mobile: read the proposal like an A4 sheet on a desk */
+    /* mobile: tighter desk margins around the scaled A4 sheet */
     @media (max-width: 640px) {
       .portal-wrap { padding: 12px 8px 92px; }
-      .contract-paper { border-radius: 6px; }
     }
 
     /* preview-only floating "+ add section" control */

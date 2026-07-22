@@ -84,9 +84,11 @@ function headerBand() {
 // top-right of the proposal is never blank.
 function brandLogo() {
   const img = h('img', { class: 'prop-logo', src: '/assets/logo-full.svg', alt: 'KOLOT — TURN IT UP.' });
+  img.addEventListener('load', () => fitPage());   // height changed → re-fit
   img.addEventListener('error', () => {
     img.replaceWith(h('div', { class: 'prop-logo-fallback' },
       h('b', {}, 'KOLOT'), h('span', {}, 'TURN IT UP.')));
+    fitPage();
   });
   return img;
 }
@@ -263,6 +265,9 @@ function signatureBlock(signed, reqSig, afterSign) {
 function downloadPdf() {
   const el = document.getElementById('proposal-doc');
   if (!el || !window.html2pdf) { toast('לא ניתן ליצור PDF במכשיר זה', 'error'); return; }
+  // capture at the full unscaled page width, then restore the on-screen fit
+  const tf = el.style.transform, ml = el.style.marginLeft;
+  el.style.transform = 'none'; el.style.marginLeft = '0';
   window.html2pdf().set({
     margin: [8, 8, 8, 8],
     filename: `${contract.language === 'en' ? 'Proposal' : 'הצעת מחיר'} - ${contract.lead?.name || 'KOLOT'}.pdf`,
@@ -270,7 +275,8 @@ function downloadPdf() {
     html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', ignoreElements: (n) => n.classList?.contains('no-print') },
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
     pagebreak: { mode: ['css', 'legacy'] },
-  }).from(el).save();
+  }).from(el).save().then(() => { el.style.transform = tf; el.style.marginLeft = ml; fitPage(); })
+    .catch(() => { el.style.transform = tf; el.style.marginLeft = ml; fitPage(); });
 }
 
 // floating "+ add section here" control (preview/edit mode only)
@@ -338,12 +344,37 @@ function draw() {
   const editableFields = (contract.client_fields || []).filter(f => f.client_editable && !signed);
   const dataEntry = dataEntryPanel(editableFields);
 
+  // the document lives in a fitter that scales the fixed-width A4 page to the
+  // screen (see fitPage), so mobile is a scaled copy of desktop, never reflowed
+  const pageFit = h('div', { class: 'page-fit' }, doc);
+
   // spread, don't pass null: Element.append(null) would render the text "null"
-  root.append(doc,
+  root.append(pageFit,
     ...(signed ? [h('button', { class: 'btn primary mt no-print', style: 'width:100%', onclick: downloadPdf }, t.download)] : []),
     h('p', { class: 'muted no-print', style: 'text-align:center;margin-top:24px' }, 'להקת קולות · KOLOT · 055-5081080'),
     ...(dataEntry ? [dataEntry] : []));
+
+  fitPage();
 }
+
+// Scale the fixed-width proposal page so it fits its container while staying a
+// pixel-exact copy of the desktop layout (like viewing a PDF). Re-run on resize,
+// and after the logo image loads (which changes the page height).
+const PAGE_W = 794;
+function fitPage() {
+  const doc = document.getElementById('proposal-doc');
+  const fit = doc?.parentElement;
+  if (!doc || !fit) return;
+  doc.style.transform = 'none';
+  doc.style.marginLeft = '0';
+  const avail = fit.clientWidth;
+  const scale = Math.min(1, avail / PAGE_W);
+  doc.style.transformOrigin = 'top left';
+  doc.style.transform = `scale(${scale})`;
+  doc.style.marginLeft = `${Math.max(0, (avail - PAGE_W * scale) / 2)}px`;
+  fit.style.height = `${doc.offsetHeight * scale}px`; // offsetHeight is unscaled
+}
+window.addEventListener('resize', () => fitPage());
 
 // A floating "fill in details" button + slide-up sheet holding the client-
 // editable fields. Keeps the document itself input-free so it reads like a page.
@@ -416,6 +447,9 @@ function priceSection() {
     document.documentElement.dir = dir;
     document.title = `${contract.title} — KOLOT`;
     draw();
+    // re-fit once web fonts finish loading (Adam/Assistant change text height)
+    document.fonts?.ready?.then(() => fitPage());
+    setTimeout(fitPage, 400);
   } catch (e) {
     root.innerHTML = `<div class="empty-state"><div class="big">😕</div><p>${e.message}</p></div>`;
   }
