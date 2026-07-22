@@ -266,9 +266,9 @@ function downloadPdf() {
   const el = document.getElementById('proposal-doc');
   if (!el || !window.html2pdf) { toast('לא ניתן ליצור PDF במכשיר זה', 'error'); return; }
   // capture at the full unscaled page width, then restore the on-screen fit
-  const z = el.style.zoom;
-  el.style.zoom = '';
-  const restore = () => { el.style.zoom = z; fitPage(); };
+  const tf = el.style.transform, mb = el.style.marginBottom;
+  el.style.transform = ''; el.style.marginBottom = '';
+  const restore = () => { el.style.transform = tf; el.style.marginBottom = mb; fitPage(); };
   window.html2pdf().set({
     margin: [8, 8, 8, 8],
     filename: `${contract.language === 'en' ? 'Proposal' : 'הצעת מחיר'} - ${contract.lead?.name || 'KOLOT'}.pdf`,
@@ -356,9 +356,12 @@ function draw() {
 }
 
 // Scale the fixed-width proposal page so it fits its container while staying a
-// pixel-exact copy of the desktop layout (like viewing a PDF). CSS `zoom` scales
-// the element in layout (no height/transform hacks needed) and is natively
-// supported in Safari/Chrome — the transform approach collapsed on mobile.
+// pixel-exact copy of the desktop layout (like viewing a PDF). We use
+// `transform: scale()` rather than `zoom`: the page is laid out at its real
+// 794px width (wide, so iOS Safari never "font-boosts" the text) and only the
+// finished raster is shrunk — that is what keeps titles / side labels / bullets
+// in the exact same proportion as desktop. transform doesn't shrink the layout
+// box, so we pull the following content up by the reclaimed height.
 const PAGE_W = 794;
 function fitPage() {
   const doc = document.getElementById('proposal-doc');
@@ -366,7 +369,15 @@ function fitPage() {
   if (!doc || !fit) return;
   const avail = fit.clientWidth;
   if (!avail) return; // not laid out yet — a later refit will handle it
-  doc.style.zoom = String(Math.min(1, avail / PAGE_W));
+  const scale = Math.min(1, avail / PAGE_W);
+  if (scale >= 1) { // desktop: no scaling, centre normally
+    doc.style.transform = '';
+    doc.style.marginBottom = '';
+    return;
+  }
+  doc.style.transformOrigin = 'top left';
+  doc.style.transform = `scale(${scale})`;
+  doc.style.marginBottom = `-${Math.round(doc.offsetHeight * (1 - scale))}px`;
 }
 window.addEventListener('resize', () => fitPage());
 

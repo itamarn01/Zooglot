@@ -65,6 +65,14 @@
     }
     /* logo centred in the free space on the right */
     .prop-head-brand { position: relative; z-index: 2; width: 26%; align-self: center; text-align: center; }
+
+    /* RTL (Hebrew) proposal: mirror the header — cyan triangle + contact text on
+       the TOP-RIGHT, logo on the LEFT. The flex row already reverses under
+       dir=rtl (info→right, logo→left); we only mirror the triangle wedge, the
+       padding and the text alignment so the words sit inside the blue. */
+    [dir="rtl"] .prop-head { padding: 16px 30px 0 22px; }
+    [dir="rtl"] .prop-head-tri { clip-path: polygon(100% 0, 30% 0, 100% 100%); }
+    [dir="rtl"] .prop-head-info { text-align: right; }
     .prop-logo { width: 100%; max-height: 108px; height: auto; object-fit: contain; display: block; margin: 0 auto; }
     /* shown only if the SVG fails to load, so the brand is never simply missing */
     .prop-logo-fallback { color: #87CEDF; font-family: var(--font-head); line-height: 1; }
