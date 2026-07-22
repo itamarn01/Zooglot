@@ -33,7 +33,12 @@
        scaled to fit the screen by JS (see fitPage), so the mobile view is a true
        scaled-down copy of the desktop/PDF — never a reflowed one. Everything
        inside therefore uses fixed px (no vw / viewport media queries). */
-    .page-fit { overflow-x: hidden; }
+    /* Force the fitter to LTR so the fixed-width page is positioned from the
+       LEFT edge (x=0) even for RTL contracts. Otherwise an RTL containing block
+       right-aligns the 794px page and it overflows to the left — then
+       transform-origin:top-left scales it off-screen (black page on mobile,
+       clipped/shifted in the preview). The page keeps its own dir="rtl". */
+    .page-fit { overflow-x: hidden; direction: ltr; text-align: left; }
     .contract-paper {
       width: 794px; margin: 0 auto; /* A4 @96dpi; JS zooms this element to fit */
       background: #fff; color: #16232a; border-radius: 14px; padding: 0 0 32px;
