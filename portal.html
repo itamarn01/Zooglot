@@ -13,6 +13,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@200;300;400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/main.css">
   <style>
+    /* Stop iOS Safari from auto-inflating text: the proposal is a fixed 794px
+       page zoomed to fit, and without this Safari enlarges the text on narrow
+       screens, breaking the PDF-exact proportions. */
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
     /* KOLOT display face — used for the cyan header block and title-only sections */
     @font-face {
       font-family: 'Adam CG Pro';
@@ -31,6 +35,7 @@
       width: 794px; margin: 0 auto; /* A4 @96dpi; JS zooms this element to fit */
       background: #fff; color: #16232a; border-radius: 14px; padding: 0 0 32px;
       box-shadow: var(--shadow); line-height: 1.8; overflow: hidden;
+      font-family: 'Assistant', 'Arial Hebrew', Arial, sans-serif; font-size: 16px;
     }
     .contract-paper h2, .contract-paper h3 { color: #0b2830; font-family: var(--font-head); }
     .contract-paper > *:not(.prop-head) { margin-inline: 44px; }
