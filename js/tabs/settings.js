@@ -81,7 +81,9 @@ export async function renderSettingsTab(view, state) {
       if (!enabled) {
         box.append(h('p', {}, statusDot(false), ' כבוי — הגדירו ENABLE_WHATSAPP=true בשרת והפעילו מחדש.'));
       } else if (st.installed === false) {
-        box.append(h('p', {}, statusDot(false), ' החבילה חסרה בשרת — הריצו: npm i @open-wa/wa-automate'));
+        box.append(h('p', {}, statusDot(false), ' החבילה חסרה בשרת — הריצו: npm i'));
+      } else if (st.checking) {
+        box.append(h('p', { class: 'muted' }, '⏳ בודק חיבור…'));
       } else if (st.connected) {
         box.append(
           h('p', {}, statusDot(true), ` מחובר${st.me ? ' · ' + st.me : ''} — הודעות נכנסות ייהפכו ללידים`),
@@ -110,7 +112,7 @@ export async function renderSettingsTab(view, state) {
       } catch { /* transient — try again shortly */ clearTimeout(timer); timer = setTimeout(poll, 4000); }
     }
 
-    render({ enabled: integrations.whatsapp });
+    render({ enabled: integrations.whatsapp, checking: true });
     poll();
     return box;
   }

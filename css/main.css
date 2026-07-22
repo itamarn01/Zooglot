@@ -10,6 +10,12 @@
   src: local('Bar Lev'), local('bar-lev');
   font-display: swap;
 }
+@font-face {
+  /* KOLOT display face — also used inside the contract rich-text editor */
+  font-family: 'Adam CG Pro';
+  src: url('/assets/fonts/ADAM.CG%20PRO.otf') format('opentype');
+  font-weight: normal; font-style: normal; font-display: swap;
+}
 
 :root {
   /* KOLOT brand — black stage, yellow spotlight, orange + cyan accents */
@@ -425,6 +431,7 @@ table.board.grid th:last-child, table.board.grid td:last-child { padding-inline-
   .ce-frame { height: 60vh; }
 }
 .ce-settings summary { cursor: pointer; color: var(--muted); font-size: 13px; margin: 4px 0; }
+.tb-font { height: 30px; padding: 0 6px; border-radius: 6px; font-size: 12.5px; max-width: 150px; }
 .wa-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
 .wa-card h4 { margin: 0 0 6px; }
 .wa-qr { width: 220px; max-width: 100%; height: auto; background: #fff; padding: 8px; border-radius: 8px; }

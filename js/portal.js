@@ -26,6 +26,7 @@ const STR = {
     inclVat: 'כולל מע"מ', plusVat: 'לפני מע"מ',
     addonHint: '➕ אפשר להוסיף תוספות גם לאחר החתימה — הסימון יעדכן את ההזמנה שלכם',
     addonAdded: 'התוספת נוספה להזמנה ✓', addonRemoved: 'התוספת הוסרה',
+    fillDetails: 'מילוי פרטים', fillCta: '✏️ מילוי פרטים', done: 'שמירה',
   },
   en: {
     total: 'Total', signatures: 'Signatures & Approval', band: 'The band', client: 'Client',
@@ -40,8 +41,12 @@ const STR = {
     inclVat: 'incl. VAT', plusVat: 'before VAT',
     addonHint: '➕ You can add extras even after signing — ticking updates your order',
     addonAdded: 'Added to your order ✓', addonRemoved: 'Removed',
+    fillDetails: 'Fill in details', fillCta: '✏️ Fill in details', done: 'Save',
   },
 };
+
+// opener for the floating data-entry sheet, wired up in draw()
+let openDataEntry = () => {};
 
 async function api(path, opts = {}) {
   const rsp = await fetch(`${API_BASE}/api/portal/${token}${path}`, {
@@ -167,14 +172,18 @@ function renderSection(s, signed, onChange) {
       hasAddon ? h('div', { class: 'pp-addon-hint no-print' }, t.addonHint) : null));
 }
 
+// In the document, fields always read as clean text (so the page looks like a
+// finished PDF). Client-editable ones are tappable and open the floating
+// data-entry sheet instead of holding an inline input.
 function fieldRows(flds, signed) {
   return flds.map(f => {
-    if (signed || !f.client_editable) {
-      return h('div', { class: 'prop-field' }, h('span', { class: 'muted' }, `${f.label}: `), h('b', {}, f.value || '—'));
-    }
-    const inp = h('input', { type: 'text', value: f.value || '', dataset: { key: f.key } });
-    inp.addEventListener('change', saveFields);
-    return h('label', { class: 'field' }, h('span', {}, f.label), inp);
+    const editable = !signed && f.client_editable;
+    const row = h('div', { class: 'prop-field' + (editable ? ' fillable' : '') },
+      h('span', { class: 'muted' }, `${f.label}: `),
+      h('b', {}, f.value || '—'),
+      editable ? h('span', { class: 'fill-ico no-print' }, ' ✏️') : null);
+    if (editable) row.addEventListener('click', () => openDataEntry());
+    return row;
   });
 }
 
@@ -324,10 +333,43 @@ function draw() {
       ? h('div', { class: 'prop-textblock', html: contract.rendered_body }) : null,
     signatureBlock(signed, reqSig, () => setTimeout(downloadPdf, 400)));
 
+  // floating data-entry: fields the client may fill live in a sheet, so the
+  // document itself stays a clean, page-like read
+  const editableFields = (contract.client_fields || []).filter(f => f.client_editable && !signed);
+  const dataEntry = dataEntryPanel(editableFields);
+
   // spread, don't pass null: Element.append(null) would render the text "null"
   root.append(doc,
     ...(signed ? [h('button', { class: 'btn primary mt no-print', style: 'width:100%', onclick: downloadPdf }, t.download)] : []),
-    h('p', { class: 'muted no-print', style: 'text-align:center;margin-top:24px' }, 'להקת קולות · KOLOT · 055-5081080'));
+    h('p', { class: 'muted no-print', style: 'text-align:center;margin-top:24px' }, 'להקת קולות · KOLOT · 055-5081080'),
+    ...(dataEntry ? [dataEntry] : []));
+}
+
+// A floating "fill in details" button + slide-up sheet holding the client-
+// editable fields. Keeps the document itself input-free so it reads like a page.
+function dataEntryPanel(fields) {
+  openDataEntry = () => {};
+  if (!fields.length) return null;
+
+  const body = h('div', { class: 'data-sheet-body' });
+  for (const f of fields) {
+    body.append(h('label', { class: 'field' }, h('span', {}, f.label),
+      h('input', { type: 'text', value: f.value || '', dataset: { key: f.key } })));
+  }
+  const sheet = h('div', { class: 'data-sheet no-print' },
+    h('div', { class: 'data-sheet-head' },
+      h('b', {}, t.fillDetails),
+      h('button', { class: 'icon-btn', onclick: () => sheet.classList.remove('open') }, '✕')),
+    body,
+    h('button', {
+      class: 'btn primary', style: 'width:100%',
+      onclick: async () => { await saveFields(); sheet.classList.remove('open'); },
+    }, t.done));
+
+  const fab = h('button', { class: 'data-fab no-print', onclick: () => sheet.classList.toggle('open') },
+    `${t.fillCta} (${fields.length})`);
+  openDataEntry = () => sheet.classList.add('open');
+  return h('div', {}, fab, sheet);
 }
 
 // The TOTAL box: a breakdown (subtotal / discount / VAT) above the grand total.

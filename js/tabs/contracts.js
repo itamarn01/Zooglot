@@ -253,6 +253,35 @@ export async function renderContractsTab(view) {
       }
       activeEl.dispatchEvent(new Event('input'));
     }
+    // wrap the current selection in a span carrying a font style. Two of the
+    // choices share a family (Assistant) and differ only in weight, so plain
+    // execCommand('fontName') won't do — we surround the selection ourselves.
+    function applyFont(css) {
+      if (!focusActive()) { toast('לחצו קודם בתוך טקסט', 'error'); return; }
+      const sel = window.getSelection();
+      if (!sel.rangeCount || sel.isCollapsed) { toast('בחרו טקסט קודם', 'error'); return; }
+      const range = sel.getRangeAt(0);
+      const span = document.createElement('span');
+      span.style.cssText = css;
+      try {
+        span.appendChild(range.extractContents());
+        range.insertNode(span);
+        sel.removeAllRanges();
+        const nr = document.createRange(); nr.selectNodeContents(span); sel.addRange(nr);
+      } catch { toast('לא ניתן להחיל על הבחירה', 'error'); return; }
+      activeEl.dispatchEvent(new Event('input'));
+    }
+    const FONTS = [
+      ['', 'פונט…'],
+      ["font-family:'Assistant',sans-serif;font-weight:400", 'Assistant'],
+      ["font-family:'Assistant',sans-serif;font-weight:200", 'Assistant ExtraLight'],
+      ["font-family:'Adam CG Pro',sans-serif;font-weight:400", 'Adam CG'],
+    ];
+    const fontSel = h('select', { class: 'tb-font', title: 'בחירת פונט לטקסט מסומן' },
+      ...FONTS.map(([css, label]) => h('option', { value: css }, label)));
+    fontSel.addEventListener('mousedown', () => { /* keep selection: handled by change */ });
+    fontSel.addEventListener('change', () => { if (fontSel.value) applyFont(fontSel.value); fontSel.value = ''; });
+
     const tb = (label, tt, fn) => h('button', {
       type: 'button', class: 'tb-btn', title: tt,
       onmousedown: (e) => { e.preventDefault(); fn(); },
@@ -265,6 +294,7 @@ export async function renderContractsTab(view) {
       tb('A', 'רגיל', () => exec('fontSize', '3')),
       tb('A+', 'גדול', () => exec('fontSize', '5')),
       tb('A++', 'ענק', () => exec('fontSize', '6')),
+      fontSel,
       tb('⟺', 'כיוון טקסט RTL/LTR', () => { if (activeEl?._toggleDir) activeEl._toggleDir(); }),
       tb('⇥', 'יישור לימין', () => exec('justifyRight')),
       tb('≡', 'מרכוז', () => exec('justifyCenter')),

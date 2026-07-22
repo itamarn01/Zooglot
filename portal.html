@@ -34,17 +34,17 @@
       position: relative; height: 140px; margin: 0 0 18px; overflow: hidden;
       background: #fff;
     }
-    /* diagonal cyan band always on the physical left (as in the PDF), regardless
-       of text direction. It covers ~70% of the width (76% at the top edge,
-       64% at the bottom), leaving the right ~30% for the logo. */
+    /* cyan right-triangle sitting on the top-left corner (as in the PDF); the
+       right angle is at the corner, the hypotenuse runs down to the bottom-left.
+       The logo lives in the free space on the right. */
     .prop-head-tri {
       position: absolute; inset: 0; background: #87CEDF;
-      clip-path: polygon(0 0, 76% 0, 64% 100%, 0 100%);
+      clip-path: polygon(0 0, 70% 0, 0 100%);
     }
     .prop-head-info {
-      position: absolute; top: 16px; left: clamp(16px, 5vw, 40px); z-index: 2;
+      position: absolute; top: 14px; left: clamp(16px, 5vw, 40px); z-index: 2;
       font-family: 'Adam CG Pro', var(--font-head); font-size: 13px; color: #fff;
-      font-weight: 400; letter-spacing: 1.5px; line-height: 1.85;
+      font-weight: 400; letter-spacing: 1.2px; line-height: 1.45;
       text-transform: uppercase; direction: ltr; text-align: left;
     }
     /* logo sits centred in the right 30% of the band */
@@ -137,6 +137,37 @@
     .pp-total-lines + .prop-price { border-radius: 0 0 10px 10px; }
     .pp-vat-note { text-align: center; color: #6b7c83; font-size: 12.5px; margin-top: 6px; }
     .prop-field { padding: 3px 0; }
+    /* fillable field rows open the floating data-entry sheet */
+    .prop-field.fillable { cursor: pointer; border-radius: 6px; transition: background .12s; }
+    .prop-field.fillable:hover { background: #eef7fa; }
+    .fill-ico { opacity: .6; }
+
+    /* floating data entry — keeps the page itself input-free (PDF-like) */
+    .data-fab {
+      position: fixed; inset-block-end: 18px; inset-inline: 0; margin-inline: auto; width: max-content;
+      z-index: 55; background: #f7c11e; color: #1a1400; border: none; cursor: pointer;
+      border-radius: 999px; padding: 12px 24px; font-weight: 800; font-size: 15px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+    }
+    .data-sheet {
+      position: fixed; inset-inline: 0; inset-block-end: 0; z-index: 60; max-width: 720px; margin-inline: auto;
+      background: #fff; color: #16232a; border-radius: 16px 16px 0 0;
+      box-shadow: 0 -10px 40px rgba(0, 0, 0, .4);
+      padding: 16px clamp(14px, 4vw, 24px) calc(18px + env(safe-area-inset-bottom, 0px));
+      max-height: 82vh; overflow-y: auto; transform: translateY(112%); transition: transform .25s ease;
+    }
+    .data-sheet.open { transform: translateY(0); }
+    .data-sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .data-sheet-head b { font-size: 18px; color: #0b2830; }
+    .data-sheet-body { display: grid; gap: 10px; margin-bottom: 14px; }
+    .data-sheet .field span { color: #4b6068; font-size: 13px; }
+    .data-sheet input { background: #fff; color: #16232a; border: 1px solid #cdd8dc; border-radius: 8px; padding: 9px 11px; width: 100%; }
+
+    /* mobile: read the proposal like an A4 sheet on a desk */
+    @media (max-width: 640px) {
+      .portal-wrap { padding: 12px 8px 92px; }
+      .contract-paper { border-radius: 6px; }
+    }
 
     /* preview-only floating "+ add section" control */
     .edit-add { position: relative; display: flex; justify-content: center; margin: 2px 0; min-height: 14px; }
