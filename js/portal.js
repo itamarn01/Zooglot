@@ -242,6 +242,13 @@ async function saveFields() {
     ({ contract } = await api('/fields', { method: 'PATCH', body: { values } }));
     toast(t.saved, 'success');
     draw(); // re-render so the saved values show on the page immediately (no refresh)
+    // In the editor's live preview, tell the parent what was saved: its in-memory
+    // copy of the contract is now stale, and its next save would otherwise write
+    // the old (empty) values straight back over what was just filled in.
+    if (editMode) {
+      window.parent?.postMessage(
+        { source: 'zooglot-preview', action: 'fields-saved', token, values }, location.origin);
+    }
   } catch (e) { toast(e.message, 'error'); }
 }
 

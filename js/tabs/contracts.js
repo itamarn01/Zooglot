@@ -728,6 +728,18 @@ export async function renderContractsTab(view) {
         addSection(d.sectionType, d.index);
         await saveAll();
         reloadFrame();
+      } else if (d.action === 'fields-saved') {
+        // the preview just wrote fill-in values to the server — mirror them into
+        // our in-memory copy so the next save doesn't overwrite them with stale
+        // (empty) values, and refresh the field inputs to show what was entered
+        const vals = d.values || {};
+        for (const s of (c.sections || [])) {
+          if (s.type !== 'fields') continue;
+          for (const f of (s.items || [])) {
+            if (f.source !== 'lead' && f.key in vals) f.value = vals[f.key];
+          }
+        }
+        drawSections();
       } else if (d.action === 'focus-section') {
         const card = buildPane.querySelector(`.section-edit[data-sid="${CSS.escape(d.id)}"]`);
         if (card) {
