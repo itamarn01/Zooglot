@@ -286,6 +286,18 @@ table.board.grid th:last-child, table.board.grid td:last-child { padding-inline-
 /* small action-button row (voice/merge/filter/new lead/import/export) */
 .toolbar-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 
+/* three-step board text size (phones) — the visible twin of pinch-to-resize */
+.text-size-ctl { display: flex; align-items: center; gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.text-size-ctl .ts-btn {
+  background: var(--surface-2); color: var(--text-dim); border: none; cursor: pointer;
+  padding: 5px 10px; line-height: 1; font-family: inherit;
+}
+.text-size-ctl .ts-btn + .ts-btn { border-inline-start: 1px solid var(--line); }
+.text-size-ctl .ts-btn-s { font-size: 11px; }
+.text-size-ctl .ts-btn-m { font-size: 14px; }
+.text-size-ctl .ts-btn-l { font-size: 18px; }
+.text-size-ctl .ts-btn.active { background: var(--brand); color: #1a1400; font-weight: 800; }
+
 .row-actions { display: flex; gap: 4px; justify-content: flex-start; }
 
 /* shared multi-select product picker (packages tab + contract product sections) */
@@ -710,6 +722,11 @@ main#view > h2::after {
      The panes stay row-aligned because every row is exactly --row-h tall and
      cells never wrap. */
   .table-wrap { --row-h: 40px; }
+  /* three text sizes (pinch or the א/א/א toolbar switch), Monday-style: each one
+     moves row height + font together with the JS column-width scale */
+  .board-split.ts-s { --row-h: 30px; --board-fs: 10.5px; --board-hfs: 9px; }
+  .board-split.ts-m { --row-h: 38px; --board-fs: 12.5px; --board-hfs: 11px; }
+  .board-split.ts-l { --row-h: 48px; --board-fs: 15px; --board-hfs: 13px; }
   .board-split { display: flex; align-items: flex-start; overflow: visible; }
   .split-frozen {
     flex: none; position: relative; z-index: 2;
@@ -723,23 +740,37 @@ main#view > h2::after {
     overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
   }
   .board-split table.board { min-width: 0; width: auto; }
+  /* Rows are pinned to an exact height by JS (see syncRows) so the two panes
+     stay locked together; these are the baseline before that measurement. */
   .board-split th, .board-split td { height: var(--row-h); box-sizing: border-box; }
+  .board-split tr { height: var(--row-h); }
   /* cell content can never push a row taller than --row-h — table layout treats
      a cell height as a minimum, and one pane growing would desync the other */
   .board-split td > * { max-height: calc(var(--row-h) - 6px); overflow: hidden; }
   /* static headers: a sticky header in only one of the two panes would drift out
      of alignment with the other */
   .board-split thead th { position: static; height: 34px; }
-  table.board th { font-size: 11px; padding: 6px 5px; }
+  table.board th { font-size: var(--board-hfs, 11px); padding: 6px 5px; }
   table.board.grid th { padding-inline-end: 9px; }
-  table.board td { padding: 1px 3px; }
-  table.board td .cell-edit { padding: 4px 4px; min-width: 0; }
-  /* iOS Safari zooms the whole page when focusing an input under 16px — which
-     is what left half the screen blank while editing a name. 16px prevents it. */
-  table.board td .cell-edit, table.board td select, table.board td input { font-size: 16px; }
-  .name-cell-inner .updates-inline { padding: 2px; font-size: 13px; }
+  table.board td { padding: 1px 3px; font-size: var(--board-fs, 12.5px); }
+  table.board td .cell-edit { padding: 3px 4px; min-width: 0; }
+  /* iOS Safari zooms the whole page when focusing an input under 16px. Keep the
+     resting text at the chosen board size, and only grow to 16px on focus — so
+     the small sizes really are small, without the page jumping while editing. */
+  table.board td .cell-edit, table.board td select, table.board td input { font-size: var(--board-fs, 12.5px); }
+  table.board td .cell-edit:focus, table.board td select:focus, table.board td input:focus { font-size: 16px; }
+  /* dedicated Updates column (right after the name, as in Monday) */
+  .updates-col { text-align: center; }
+  .updates-col .updates-inline { padding: 2px; font-size: calc(var(--board-fs, 12.5px) + 2px); }
   .row-actions { gap: 1px; }
   .row-actions .icon-btn { padding: 3px; font-size: 15px; }
+
+  /* touch-resizable columns: a wide invisible grip so a finger can grab it */
+  .board-split .col-resize { width: 22px; touch-action: none; }
+
+  /* Clear space under the board so the last row is never hidden behind the
+     bottom tab bar (Monday leaves a comparable gap). */
+  .board-split { padding-bottom: 120px; }
 
   /* app-style bottom navigation replaces the top tab bar */
   nav.tabs { display: none; }

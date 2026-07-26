@@ -8,6 +8,24 @@ import { formatPhone, sanitizePhone } from '../phone.js';
 
 const PAGE_SIZE = 100;
 const WIDTHS_KEY = 'zooglot_col_widths';
+const TEXTSIZE_KEY = 'zooglot_board_textsize';
+
+// Three board text sizes on phones (like Monday's pinch-to-resize): each level
+// scales the column widths, the row height and the font together, so smaller
+// text really does reveal more columns rather than just shrinking the letters.
+const TEXT_SIZES = ['s', 'm', 'l'];
+const TEXT_SIZE_SCALE = { s: 0.56, m: 0.72, l: 0.92 };
+const loadTextSize = () => {
+  try { const v = localStorage.getItem(TEXTSIZE_KEY); return TEXT_SIZES.includes(v) ? v : 'm'; }
+  catch { return 'm'; }
+};
+let textSize = loadTextSize();
+function setTextSize(v) {
+  if (!TEXT_SIZES.includes(v) || v === textSize) return;
+  textSize = v;
+  try { localStorage.setItem(TEXTSIZE_KEY, v); } catch { /* private mode */ }
+  draw();
+}
 
 const RELATIONS = ['כלה', 'חתן', 'הורה', 'מפיק/ה', 'אחר'];
 const STAGES = ['לקוח חדש ידני', 'לקוח משאלון'];
@@ -53,6 +71,9 @@ function columns() {
   const team = ctx.state.team;
   return [
     { key: 'name', label: 'שם', type: 'text', width: 190 },
+    // Updates sits immediately after the name (Monday's layout): it is the first
+    // scrolling column, so it scrolls away while the name stays pinned.
+    { key: '__updates', label: 'Updates', type: 'updates', width: 84 },
     { key: 'contact_name', label: 'איש קשר', type: 'text' },
     { key: 'contacts', label: 'אנשי קשר נוספים', type: 'contacts' },
     { key: 'owner_id', label: 'בטיפול', type: 'select', options: team.map(t => [t.id, t.full_name || t.email]) },
@@ -178,6 +199,7 @@ function draw() {
     searchInput,
     sortControl(),
     h('div', { class: 'toolbar-actions' },
+      textSizeControl(),
       filterControl(),
       h('button', { class: 'btn sm', onclick: openVoiceModal }, '🎙️ ליד מהקלטה'),
       h('button', { class: 'btn sm', onclick: openMergePicker }, '🔀 מיזוג כפולים'),
@@ -328,8 +350,10 @@ const DEFAULT_W = 150;
 // phones get a narrower checkbox column and tighter data columns so more fields
 // fit beside the pinned name. Must stay in sync with --cb-w in main.css.
 const isPhone = () => window.matchMedia('(max-width: 640px)').matches;
-const CHECKBOX_COL_W = () => (isPhone() ? 30 : 38);
-const PHONE_COL_SCALE = 0.72;
+// the pinned checkbox+name pane shrinks with the text size too, so the smallest
+// setting really does leave more room for the scrolling columns
+const CHECKBOX_COL_W = () => (isPhone() ? (textSize === 's' ? 24 : textSize === 'l' ? 34 : 28) : 38);
+const PHONE_COL_SCALE = () => (isPhone() ? TEXT_SIZE_SCALE[textSize] : 1);
 
 // On desktop the board is one table with the checkbox + name columns pinned via
 // position:sticky. That is unusable on iOS — Safari drops sticky table cells
@@ -343,15 +367,77 @@ function buildBoard(rows) {
   if (!isPhone()) {
     return h('div', { class: 'table-wrap' }, buildTable(rows, cols, 'all'));
   }
-  return h('div', { class: 'table-wrap board-split' },
-    h('div', { class: 'split-frozen' }, buildTable(rows, cols, 'frozen')),
-    h('div', { class: 'split-rest' }, buildTable(rows, cols, 'rest')));
+  const frozen = buildTable(rows, cols, 'frozen');
+  const rest = buildTable(rows, cols, 'rest');
+  const wrap = h('div', { class: `table-wrap board-split ts-${textSize}` },
+    h('div', { class: 'split-frozen' }, frozen),
+    h('div', { class: 'split-rest' }, rest));
+
+  // CSS alone cannot guarantee the two panes line up: a cell height is only a
+  // MINIMUM in table layout, so any row whose content is a pixel taller in one
+  // pane pushes that pane out of step and the rows visibly drift apart. Measure
+  // both panes and pin each row pair to the taller of the two.
+  const syncRows = () => {
+    const pairs = [];
+    const head = [frozen.tHead?.rows[0], rest.tHead?.rows[0]];
+    if (head[0] && head[1]) pairs.push(head);
+    const a = frozen.tBodies[0]?.rows || [], b = rest.tBodies[0]?.rows || [];
+    for (let i = 0; i < Math.min(a.length, b.length); i++) pairs.push([a[i], b[i]]);
+
+    // clear every override first, then measure: reading heights that are still
+    // pinned from the previous pass would just re-apply the old (stale) values
+    for (const [x, y] of pairs) { x.style.height = ''; y.style.height = ''; }
+    const heights = pairs.map(([x, y]) =>
+      Math.max(x.getBoundingClientRect().height, y.getBoundingClientRect().height));
+    pairs.forEach(([x, y], i) => {
+      x.style.height = `${heights[i]}px`;
+      y.style.height = `${heights[i]}px`;
+    });
+  };
+  requestAnimationFrame(syncRows);
+  // fonts land after first paint and change text metrics → re-sync once more
+  document.fonts?.ready?.then(() => requestAnimationFrame(syncRows));
+  attachPinchZoom(wrap);
+  return wrap;
+}
+
+// Pinch on the board to step through the three text sizes, like Monday. Uses
+// raw touch points (not gesture events, which Chrome/Android lacks) and only
+// fires once per pinch so a single gesture moves exactly one step.
+function attachPinchZoom(el) {
+  let startDist = 0, fired = false;
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  el.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 2) return;
+    startDist = dist(e.touches); fired = false;
+  }, { passive: true });
+  el.addEventListener('touchmove', (e) => {
+    if (e.touches.length !== 2 || !startDist || fired) return;
+    const ratio = dist(e.touches) / startDist;
+    if (ratio > 1.25 || ratio < 0.8) {
+      const i = TEXT_SIZES.indexOf(textSize);
+      const next = TEXT_SIZES[Math.min(TEXT_SIZES.length - 1, Math.max(0, i + (ratio > 1 ? 1 : -1)))];
+      fired = true;
+      if (next !== textSize) setTextSize(next);
+    }
+  }, { passive: true });
+  el.addEventListener('touchend', () => { startDist = 0; }, { passive: true });
+}
+
+// visible 3-step text-size switcher (phones) — pinching is not discoverable
+function textSizeControl() {
+  if (!isPhone()) return null;
+  return h('div', { class: 'text-size-ctl' },
+    ...[['s', 'א', 'טקסט קטן'], ['m', 'א', 'טקסט בינוני'], ['l', 'א', 'טקסט גדול']].map(([v, lbl, title]) =>
+      h('button', {
+        class: `ts-btn ts-btn-${v}${textSize === v ? ' active' : ''}`, title,
+        onclick: () => setTextSize(v),
+      }, lbl)));
 }
 
 // part: 'all' (one table) | 'frozen' (checkbox + name) | 'rest' (everything else)
 function buildTable(rows, cols, part) {
-  const width = (c) => Math.round(
-    (ctx.colWidths[c.key] || c.width || DEFAULT_W) * (isPhone() ? PHONE_COL_SCALE : 1));
+  const width = (c) => Math.round((ctx.colWidths[c.key] || c.width || DEFAULT_W) * PHONE_COL_SCALE());
   const dataCols = part === 'frozen' ? cols.slice(0, 1) : part === 'rest' ? cols.slice(1) : cols;
   const hasCheckbox = part !== 'rest';
   const hasActions = part !== 'frozen';
@@ -388,8 +474,9 @@ function buildTable(rows, cols, part) {
             draw();
           },
         }, c.label, ctx.sort.col === c.key ? h('span', { class: 'sort-arrow' }, ctx.sort.asc ? ' ▲' : ' ▼') : ''),
-        // touch-dragging a 8px grip isn't practical, so resizing is desktop-only
-        isPhone() ? null : resizeHandle(c, colIndex));
+        // resizable on phones too (the grip gets a wider touch target in CSS),
+        // so columns that don't fit can simply be widened
+        resizeHandle(c, colIndex));
       colIndex++;
       return th;
     }),
@@ -419,7 +506,7 @@ function resizeHandle(col, colIndex) {
       const w = Math.max(70, Math.round(startW + dx));
       colEl.style.width = `${w}px`;
       // store the unscaled width so a phone resize doesn't shrink again on redraw
-      ctx.colWidths[col.key] = isPhone() ? Math.round(w / PHONE_COL_SCALE) : w;
+      ctx.colWidths[col.key] = Math.round(w / PHONE_COL_SCALE());
     };
     const onUp = () => {
       handle.classList.remove('dragging');
@@ -475,20 +562,16 @@ function buildRow(lead, cols, part = 'all') {
   return tr;
 }
 
-// name column doubles as the 💬 updates entry point, and stays visible while the
-// fields scroll — pinned via sticky on desktop, in the frozen pane on phones.
+// the name column stays visible while the fields scroll — pinned via sticky on
+// desktop, in the frozen pane on phones. (💬 updates is its own column now,
+// immediately after this one, matching Monday.)
 function buildNameCell(lead, col, part = 'all') {
   const td = buildCell(lead, col);
   td.classList.add('name-cell');
   if (part === 'all') td.classList.add('sticky-col-2');
   // The <td> itself must stay a real table cell — `display:flex` on a sticky td
-  // is unreliable in Safari/iOS — so the 💬 + name row lives in an inner wrapper.
-  const inner = h('div', { class: 'name-cell-inner' }, ...td.childNodes);
-  inner.prepend(h('button', {
-    class: 'icon-btn updates-inline', title: 'עדכונים ותכתובת',
-    onclick: (e) => { e.stopPropagation(); openUpdatesDrawer(lead); },
-  }, '💬', lead.updates_count ? h('sup', {}, lead.updates_count) : ''));
-  td.append(inner);
+  // is unreliable in Safari/iOS — so the name row lives in an inner wrapper.
+  td.append(h('div', { class: 'name-cell-inner' }, ...td.childNodes));
   return td;
 }
 
@@ -549,6 +632,16 @@ function buildCell(lead, col) {
   };
 
   if (col.type === 'readonly') { td.append(col.render(lead)); return td; }
+
+  // the 💬 updates entry point, as its own column right after the name
+  if (col.type === 'updates') {
+    td.classList.add('updates-col');
+    td.append(h('button', {
+      class: 'icon-btn updates-inline', title: 'עדכונים ותכתובת',
+      onclick: (e) => { e.stopPropagation(); openUpdatesDrawer(lead); },
+    }, '💬', lead.updates_count ? h('sup', {}, lead.updates_count) : ''));
+    return td;
+  }
 
   if (col.type === 'contacts') {
     const n = (lead.contacts || []).length;
