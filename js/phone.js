@@ -37,6 +37,21 @@ export function sanitizePhone(raw) {
   return (s.startsWith('+') ? '+' : '') + s.replace(/\D/g, '');
 }
 
+// Canonical key for comparing two numbers. The same phone reaches us written
+// many ways — 0506712068, 972506712068, +972-50-671-2068, 506712068 — and they
+// must all collapse to one key so duplicate detection actually finds them.
+// Israeli numbers normalise to national form (leading 0); anything else falls
+// back to plain digits, so exact matches still pair up.
+export function phoneKey(raw) {
+  let d = String(raw || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.startsWith('972')) d = '0' + d.slice(3);
+  else if (d.length === 9 && !d.startsWith('0')) d = '0' + d; // 5XXXXXXXX → 05XXXXXXXX
+  // too short to be a real number — don't let '12' pair unrelated leads
+  return d.length >= 7 ? d : '';
+}
+
 // returns { iso2, display } — display is formatted with dashes/spaces for
 // readability; iso2 is the detected ISO country code (lowercase, '' if unknown),
 // used to pick the flag SVG in /assets/flags/<iso2>.svg.

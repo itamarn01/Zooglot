@@ -4,7 +4,7 @@
 import { get, post, patch, del, upload } from '../api.js';
 import { h, toast, modal, confirmModal, debounce, skeletonTable, withBusy } from '../ui.js';
 import { openImportWizard } from './import.js';
-import { formatPhone, sanitizePhone } from '../phone.js';
+import { formatPhone, sanitizePhone, phoneKey } from '../phone.js';
 
 const PAGE_SIZE = 100;
 const WIDTHS_KEY = 'zooglot_col_widths';
@@ -246,6 +246,9 @@ function draw() {
   const selBar = selectionBar();
   if (selBar) host.append(selBar);
 
+  const dupBar = duplicateBanner();
+  if (dupBar) host.append(dupBar);
+
   if (!rows.length) {
     host.append(h('div', { class: 'empty-state' }, h('div', { class: 'big' }, '🎷'), h('p', {}, 'אין לידים בתצוגה הזו')));
     return;
@@ -293,9 +296,21 @@ const DUP_FIELDS = [
 function selectionBar() {
   const n = ctx.selected.size;
   if (!n) return null;
+  // merging is a two-record operation, so the button only appears at exactly 2 —
+  // no picker, no searching for the twin: tick the pair and merge
+  const mergeBtn = n === 2
+    ? h('button', {
+      class: 'btn sm', onclick: () => {
+        const [a, b] = [...ctx.selected].map(id => ctx.leads.find(l => l.id === id));
+        if (a && b) openMergeResolve(a, b);
+      },
+    }, '🔀 מיזוג')
+    : null;
   return h('div', { class: 'selection-bar' },
     h('b', {}, `נבחרו ${n} רשומות`),
+    n > 2 ? h('span', { class: 'muted', style: 'font-size:12px' }, '(למיזוג — סמנו בדיוק 2)') : null,
     h('span', { style: 'flex:1' }),
+    mergeBtn,
     h('button', { class: 'btn sm', onclick: withBusy(bulkDuplicate) }, '📄 שכפול'),
     h('button', { class: 'btn sm danger', onclick: withBusy(bulkDelete) }, '🗑️ מחיקה'),
     h('button', { class: 'btn sm', onclick: () => { ctx.selected.clear(); draw(); } }, '✕ ביטול בחירה'));
@@ -1155,6 +1170,91 @@ function openReminderModal(lead, onSaved) {
 }
 
 // ---------------- merge ----------------
+// ---------------- duplicate detection by phone ----------------
+// Two leads sharing a phone number are almost always the same couple entered
+// twice (import + WhatsApp + manual). Numbers are compared by phoneKey, so the
+// same line written in different formats still pairs up. phone1 and phone2 are
+// both considered — a duplicate often has the number in the other slot.
+function phoneDuplicateGroups() {
+  const byKey = new Map();
+  for (const l of ctx.leads) {
+    // one lead counts once per distinct number, so a lead whose phone1 and
+    // phone2 are the same value doesn't pair with itself
+    const keys = new Set([phoneKey(l.phone1), phoneKey(l.phone2)].filter(Boolean));
+    for (const k of keys) {
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(l);
+    }
+  }
+  return [...byKey.entries()]
+    .filter(([, ls]) => ls.length > 1)
+    .map(([key, leads]) => ({ key, leads }))
+    .sort((a, b) => b.leads.length - a.leads.length);
+}
+
+// slim banner above the board — visible, but never blocking
+function duplicateBanner() {
+  const groups = phoneDuplicateGroups();
+  if (!groups.length) return null;
+  const leadCount = new Set(groups.flatMap(g => g.leads.map(l => l.id))).size;
+  return h('div', { class: 'dup-banner' },
+    h('span', {}, `📞 נמצאו ${groups.length} מספרי טלפון שחוזרים ביותר מליד אחד (${leadCount} רשומות)`),
+    h('span', { style: 'flex:1' }),
+    h('button', { class: 'btn sm primary', onclick: () => openDuplicateReview() }, 'סקירה ומיזוג'));
+}
+
+function openDuplicateReview() {
+  const body = h('div', {});
+  let m = null;
+  const drawList = () => {
+    body.innerHTML = '';
+    const groups = phoneDuplicateGroups();
+    if (!groups.length) {
+      body.append(h('div', { class: 'empty-state' },
+        h('div', { class: 'big' }, '✅'), h('p', {}, 'לא נותרו כפילויות לפי טלפון')));
+      return;
+    }
+    body.append(h('p', { class: 'muted' },
+      'כל קבוצה חולקת את אותו מספר טלפון. בחרו איזה ליד נשאר — השני ימוזג לתוכו ויימחק.'));
+    for (const g of groups) {
+      const { display } = formatPhone(g.leads[0].phone1 || g.leads[0].phone2 || g.key);
+      const rows = g.leads.map(l => h('div', { class: 'dup-lead' },
+        h('div', {},
+          h('b', {}, l.name),
+          h('span', { class: 'muted' }, ` · ${l.sale_status.toUpperCase()}`),
+          h('div', { class: 'muted', style: 'font-size:12px' },
+            [l.contact_name, l.event_date, l.event_location].filter(Boolean).join(' · ') || '—')),
+        h('span', { style: 'flex:1' }),
+        // merging is pairwise; for a bigger cluster merge two at a time and the
+        // list re-scans, so the remaining ones stay visible
+        g.leads.length === 2
+          ? h('button', {
+            class: 'btn sm', onclick: () => {
+              const other = g.leads.find(x => x.id !== l.id);
+              m?.close?.();
+              openMergeResolve(l, other, () => openDuplicateReview());
+            },
+          }, '✅ שמור את זה ומזג')
+          : h('button', {
+            class: 'btn sm', onclick: () => {
+              const other = g.leads.find(x => x.id !== l.id);
+              m?.close?.();
+              openMergeResolve(l, other, () => openDuplicateReview());
+            },
+          }, '✅ שמור את זה')));
+      body.append(h('div', { class: 'card dup-group' },
+        h('div', { class: 'dup-phone' }, `📞 ${display}`,
+          g.leads.length > 2 ? h('span', { class: 'muted' }, ` · ${g.leads.length} רשומות`) : null),
+        ...rows));
+    }
+  };
+  drawList();
+  m = modal('🔀 כפילויות לפי טלפון', body, {
+    wide: true,
+    actions: [{ label: 'סגירה', onclick: (close) => close() }],
+  });
+}
+
 function openMergePicker() {
   const rows = ctx.leads;
   const sel1 = h('select', {}, ...rows.map(l => h('option', { value: l.id }, l.name)));
@@ -1177,7 +1277,7 @@ function openMergePicker() {
   });
 }
 
-function openMergeResolve(primary, dup) {
+function openMergeResolve(primary, dup, onDone) {
   const cols = columns().filter(c => !['contacts', 'readonly', 'status'].includes(c.type));
   const conflicts = cols.filter(c => {
     const a = primary[c.key], b = dup[c.key];
@@ -1185,6 +1285,20 @@ function openMergeResolve(primary, dup) {
   });
   const resolutions = {};
   const body = h('div', {},
+    // which record survives matters (the other is deleted), so make the roles
+    // explicit and let them be swapped without going back to the board
+    h('div', { class: 'card', style: 'padding:10px;margin-bottom:12px' },
+      h('div', {}, h('b', {}, '✅ נשאר: '), primary.name,
+        h('span', { class: 'muted' }, ` · ${primary.phone1 || 'ללא טלפון'}`)),
+      h('div', { style: 'margin-top:4px' }, h('b', {}, '🗑️ יימחק אחרי המיזוג: '), dup.name,
+        h('span', { class: 'muted' }, ` · ${dup.phone1 || 'ללא טלפון'}`)),
+      h('button', {
+        class: 'btn sm', style: 'margin-top:8px',
+        onclick: (e) => {
+          e.target.closest('.modal-backdrop')?.remove();
+          openMergeResolve(dup, primary, onDone);
+        },
+      }, '⇄ החלפה — שהשני יישאר')),
     h('p', { class: 'muted' }, conflicts.length
       ? 'נמצאו ערכים סותרים — בחרו איזה מידע לשמור עבור כל שדה:'
       : 'אין התנגשויות — שדות ריקים בליד הראשי יושלמו אוטומטית מהכפיל.'),
@@ -1210,8 +1324,10 @@ function openMergeResolve(primary, dup) {
           try {
             await post('/leads/merge', { primary_id: primary.id, duplicate_id: dup.id, resolutions });
             close();
+            ctx.selected.delete(primary.id); ctx.selected.delete(dup.id);
             toast('הלידים מוזגו בהצלחה', 'success');
-            reload();
+            await reload();
+            onDone?.();
           } catch (e) { toast(e.message, 'error'); }
         },
       },
