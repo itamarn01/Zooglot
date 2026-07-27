@@ -46,6 +46,7 @@ export async function renderLeadsTab(view, state) {
     limit: PAGE_SIZE,
     colWidths: loadWidths(),
     selected: new Set(),
+    dismissals: [],   // phone numbers confirmed as "not a duplicate"
   };
   const skel = h('div', {}, skeletonTable(10));
   view.append(skel);
@@ -58,11 +59,15 @@ export async function renderLeadsTab(view, state) {
 function resetPaging() { ctx.limit = PAGE_SIZE; ctx.selected.clear(); }
 
 async function reload(redraw = true) {
-  const [{ leads }, { competitors }] = await Promise.all([
+  const [{ leads }, { competitors }, dismissed] = await Promise.all([
     get('/leads'), get('/leads/meta/competitors'),
+    // approvals are a nice-to-have: if the table isn't migrated yet the board
+    // must still load, just without the "not a duplicate" memory
+    get('/leads/meta/duplicate-dismissals').catch(() => ({ dismissals: [] })),
   ]);
   ctx.leads = leads;
   ctx.competitors = competitors;
+  ctx.dismissals = dismissed.dismissals || [];
   if (redraw) draw();
 }
 
@@ -1175,7 +1180,9 @@ function openReminderModal(lead, onSaved) {
 // twice (import + WhatsApp + manual). Numbers are compared by phoneKey, so the
 // same line written in different formats still pairs up. phone1 and phone2 are
 // both considered — a duplicate often has the number in the other slot.
-function phoneDuplicateGroups() {
+// includeApproved: pass true to also get the groups the team already confirmed
+// are legitimate (one producer, many events) — used by the "approved" list.
+function phoneDuplicateGroups(includeApproved = false) {
   const byKey = new Map();
   for (const l of ctx.leads) {
     // one lead counts once per distinct number, so a lead whose phone1 and
@@ -1186,9 +1193,11 @@ function phoneDuplicateGroups() {
       byKey.get(k).push(l);
     }
   }
+  const approved = new Map((ctx.dismissals || []).map(d => [d.phone_key, d]));
   return [...byKey.entries()]
     .filter(([, ls]) => ls.length > 1)
-    .map(([key, leads]) => ({ key, leads }))
+    .filter(([k]) => includeApproved ? approved.has(k) : !approved.has(k))
+    .map(([key, leads]) => ({ key, leads, approval: approved.get(key) || null }))
     .sort((a, b) => b.leads.length - a.leads.length);
 }
 
@@ -1200,54 +1209,94 @@ function duplicateBanner() {
   return h('div', { class: 'dup-banner' },
     h('span', {}, `📞 נמצאו ${groups.length} מספרי טלפון שחוזרים ביותר מליד אחד (${leadCount} רשומות)`),
     h('span', { style: 'flex:1' }),
-    h('button', { class: 'btn sm primary', onclick: () => openDuplicateReview() }, 'סקירה ומיזוג'));
+    h('button', { class: 'btn sm primary', onclick: () => openDuplicateReview() }, 'סקירה, מיזוג ואישור'));
 }
 
-function openDuplicateReview() {
+function openDuplicateReview(showApproved = false) {
   const body = h('div', {});
   let m = null;
-  const drawList = () => {
-    body.innerHTML = '';
-    const groups = phoneDuplicateGroups();
-    if (!groups.length) {
-      body.append(h('div', { class: 'empty-state' },
-        h('div', { class: 'big' }, '✅'), h('p', {}, 'לא נותרו כפילויות לפי טלפון')));
-      return;
-    }
-    body.append(h('p', { class: 'muted' },
-      'כל קבוצה חולקת את אותו מספר טלפון. בחרו איזה ליד נשאר — השני ימוזג לתוכו ויימחק.'));
-    for (const g of groups) {
-      const { display } = formatPhone(g.leads[0].phone1 || g.leads[0].phone2 || g.key);
-      const rows = g.leads.map(l => h('div', { class: 'dup-lead' },
-        h('div', {},
-          h('b', {}, l.name),
-          h('span', { class: 'muted' }, ` · ${l.sale_status.toUpperCase()}`),
-          h('div', { class: 'muted', style: 'font-size:12px' },
-            [l.contact_name, l.event_date, l.event_location].filter(Boolean).join(' · ') || '—')),
-        h('span', { style: 'flex:1' }),
-        // merging is pairwise; for a bigger cluster merge two at a time and the
-        // list re-scans, so the remaining ones stay visible
-        g.leads.length === 2
-          ? h('button', {
-            class: 'btn sm', onclick: () => {
-              const other = g.leads.find(x => x.id !== l.id);
-              m?.close?.();
-              openMergeResolve(l, other, () => openDuplicateReview());
-            },
-          }, '✅ שמור את זה ומזג')
-          : h('button', {
-            class: 'btn sm', onclick: () => {
-              const other = g.leads.find(x => x.id !== l.id);
-              m?.close?.();
-              openMergeResolve(l, other, () => openDuplicateReview());
-            },
-          }, '✅ שמור את זה')));
-      body.append(h('div', { class: 'card dup-group' },
+
+  // "not a duplicate": a producer books many weddings on one number. Approving
+  // hides the number for the whole team; it stays listed under "approved" so it
+  // can be undone.
+  const approve = async (g) => {
+    const label = g.leads.map(l => l.contact_name || l.name).filter(Boolean)[0] || '';
+    try {
+      await post('/leads/meta/duplicate-dismissals', { phone_key: g.key, note: label });
+      await reload(false);
+      toast('סומן כלא-כפילות ✓', 'success');
+      drawList();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  const undo = async (g) => {
+    try {
+      await del(`/leads/meta/duplicate-dismissals/${encodeURIComponent(g.key)}`);
+      await reload(false);
+      toast('הוחזר לרשימת הכפילויות', 'success');
+      drawList();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  const groupCard = (g, approved) => {
+    const { display } = formatPhone(g.leads[0].phone1 || g.leads[0].phone2 || g.key);
+    const rows = g.leads.map(l => h('div', { class: 'dup-lead' },
+      h('div', {},
+        h('b', {}, l.name),
+        h('span', { class: 'muted' }, ` · ${(l.sale_status || '').toUpperCase()}`),
+        h('div', { class: 'muted', style: 'font-size:12px' },
+          [l.contact_name, l.event_date, l.event_location].filter(Boolean).join(' · ') || '—')),
+      h('span', { style: 'flex:1' }),
+      approved ? null : h('button', {
+        class: 'btn sm', onclick: () => {
+          const other = g.leads.find(x => x.id !== l.id);
+          m?.close?.();
+          openMergeResolve(l, other, () => openDuplicateReview(showApproved));
+        },
+      }, g.leads.length === 2 ? '✅ שמור את זה ומזג' : '✅ שמור את זה')));
+
+    return h('div', { class: 'card dup-group' },
+      h('div', { class: 'dup-head' },
         h('div', { class: 'dup-phone' }, `📞 ${display}`,
           g.leads.length > 2 ? h('span', { class: 'muted' }, ` · ${g.leads.length} רשומות`) : null),
-        ...rows));
-    }
+        h('span', { style: 'flex:1' }),
+        approved
+          ? h('button', { class: 'btn sm', onclick: () => undo(g) }, '↩︎ החזרה לבדיקה')
+          : h('button', { class: 'btn sm ghost', title: 'אירועים שונים של אותו איש קשר — לא למזג', onclick: () => approve(g) },
+            '👤 לא כפילות — אשר')),
+      ...rows);
   };
+
+  const drawList = () => {
+    body.innerHTML = '';
+    const pending = phoneDuplicateGroups(false);
+    const approvedGroups = phoneDuplicateGroups(true);
+
+    // tabs: what still needs a decision vs what was already approved
+    body.append(h('div', { class: 'dup-tabs' },
+      h('button', {
+        class: showApproved ? '' : 'active',
+        onclick: () => { showApproved = false; drawList(); },
+      }, `לבדיקה (${pending.length})`),
+      h('button', {
+        class: showApproved ? 'active' : '',
+        onclick: () => { showApproved = true; drawList(); },
+      }, `מאושרים כלא-כפילות (${approvedGroups.length})`)));
+
+    const list = showApproved ? approvedGroups : pending;
+    if (!list.length) {
+      body.append(h('div', { class: 'empty-state' },
+        h('div', { class: 'big' }, showApproved ? '👤' : '✅'),
+        h('p', {}, showApproved
+          ? 'עדיין לא אישרתם מספרים כלא-כפילות'
+          : 'לא נותרו כפילויות לבדיקה')));
+      return;
+    }
+    body.append(h('p', { class: 'muted' }, showApproved
+      ? 'המספרים האלה אושרו כשייכים לאותו איש קשר עם אירועים שונים — הם לא יופיעו יותר בבדיקה.'
+      : 'כל קבוצה חולקת את אותו מספר. אם זה מפיק/ה עם אירועים שונים — לחצו "לא כפילות". אחרת בחרו איזה ליד נשאר.'));
+    for (const g of list) body.append(groupCard(g, showApproved));
+  };
+
   drawList();
   m = modal('🔀 כפילויות לפי טלפון', body, {
     wide: true,

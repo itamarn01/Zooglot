@@ -247,7 +247,17 @@ table.board.grid th:last-child, table.board.grid td:last-child { padding-inline-
   border-radius: 10px; padding: 9px 13px; margin-bottom: 10px; font-size: 13.5px;
 }
 .dup-group { padding: 12px; margin-bottom: 10px; }
-.dup-phone { font-weight: 700; color: var(--brand); margin-bottom: 8px; direction: ltr; text-align: start; }
+.dup-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.dup-phone { font-weight: 700; color: var(--brand); direction: ltr; text-align: start; }
+/* pending vs approved */
+.dup-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.dup-tabs button {
+  background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 12px; cursor: pointer; font-family: inherit; font-size: 13px;
+}
+.dup-tabs button.active { background: var(--brand); color: #1a1400; border-color: var(--brand); font-weight: 700; }
+.btn.ghost { background: transparent; border: 1px dashed var(--line); color: var(--text-dim); }
+.btn.ghost:hover { border-color: var(--brand); color: var(--brand); }
 .dup-lead {
   display: flex; align-items: center; gap: 10px; padding: 8px 0;
   border-top: 1px solid var(--line);
