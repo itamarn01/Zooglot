@@ -3,7 +3,9 @@
 import { get, post, upload } from '../api.js';
 import { h, toast } from '../ui.js';
 
-export async function openImportWizard(onDone) {
+// pipeline: the board view the user was on ('open' | 'win' | 'lost' | 'all') —
+// imported leads land there by default, so a WON export goes straight to WIN.
+export async function openImportWizard(onDone, pipeline = 'open') {
   let fields;
   try { fields = await get('/import/fields'); }
   catch (e) { toast(e.message, 'error'); return; }
@@ -18,8 +20,11 @@ export async function openImportWizard(onDone) {
     umap: {},               // updates: {match,content,author,date} → sourceCol
     matchStrategy: 'add',   // add | skip | update
     matchField: 'name',     // name | source_ref
+    // 'all' is not a real status — fall back to the main pipeline
+    saleStatus: ['open', 'win', 'lost'].includes(pipeline) ? pipeline : 'open',
     result: null,
   };
+  const STATUS_LABELS = { open: 'צינור ראשי', win: 'WIN 🎉', lost: 'LOST' };
 
   // ---- shell ----
   const backdrop = h('div', { class: 'modal-backdrop' });
@@ -65,6 +70,9 @@ export async function openImportWizard(onDone) {
     }, h('div', { style: 'font-size:30px' }, emoji), h('h4', { style: 'margin:6px 0' }, title), h('p', { class: 'muted' }, desc));
     body.append(
       h('p', { class: 'muted' }, 'מה תרצו לייבא? העלו קובץ Excel (‎.xlsx/.xls) או CSV.'),
+      h('p', { class: 'muted' }, `🎯 לידים ייובאו כברירת מחדל אל: `,
+        h('b', { style: 'color:var(--text)' }, STATUS_LABELS[state.saleStatus]),
+        ' — ניתן לשנות בשלב "התאמות".'),
       h('div', { class: 'grid-2' },
         card('leads', '🎷', 'לידים (מעקב זוגות)', 'יצירת/עדכון שורות מעקב זוגות מתוך קובץ אקסל, עם מיפוי טורים.'),
         card('updates', '💬', 'עדכונים (Updates ממנדי)', 'ייבוא אזור העדכונים/תכתובת לתוך הלידים הקיימים, לפי שם או מזהה.')));
@@ -160,8 +168,24 @@ export async function openImportWizard(onDone) {
       hasExtId ? h('option', { value: 'source_ref', selected: state.matchField === 'source_ref' }, 'לפי מזהה חיצוני (Item ID)') : null);
     matchFieldSel.addEventListener('change', () => { state.matchField = matchFieldSel.value; });
 
+    // where the imported rows land. Pre-set from the board the user came from;
+    // a mapped "סטאטוס מכירה" column still overrides this per row.
+    const statusSel = h('select', { style: 'max-width:260px' },
+      ...Object.entries(STATUS_LABELS).map(([v, l]) =>
+        h('option', { value: v, selected: state.saleStatus === v }, l)));
+    statusSel.addEventListener('change', () => { state.saleStatus = statusSel.value; });
+    const mapsStatus = Object.values(state.mapping).includes('sale_status');
+
     body.append(
-      h('h4', {}, 'טיפול בהתאמות'),
+      h('h4', {}, 'יעד הייבוא'),
+      h('label', { class: 'field' }, h('span', {}, 'הלידים ייובאו אל'), statusSel),
+      h('p', { class: 'muted', style: 'margin-top:4px' },
+        mapsStatus
+          ? 'ℹ️ מיפית טור ל"סטאטוס מכירה" — הערך מהקובץ יגבר על הבחירה הזו בכל שורה שיש בה ערך.'
+          : (state.saleStatus === 'lost'
+            ? '⚠️ ייבוא ל-LOST: שורות ללא "למה לא?" ו"מתחרה שזכה" יקבלו ערך ברירת מחדל, כי המערכת מחייבת אותם.'
+            : 'נקבע לפי הצינור שממנו נכנסתם לייבוא.')),
+      h('h4', { style: 'margin-top:18px' }, 'טיפול בהתאמות'),
       h('p', { class: 'muted' }, 'כשנמצאת שורה קיימת עם אותו ערך — מה לעשות?'),
       opt('add', 'הוספת כל השורות כחדשות', 'ייווצרו לידים חדשים לכל השורות, גם אם קיים ליד תואם.'),
       opt('skip', 'דילוג על התאמות', 'שורות שכבר קיימות (לפי שדה הזיהוי) יידלגו.'),
@@ -175,6 +199,7 @@ export async function openImportWizard(onDone) {
         const rsp = await post('/import/leads', {
           rows: state.rows, mapping: state.mapping,
           match_strategy: state.matchStrategy, match_field: state.matchField,
+          default_sale_status: state.saleStatus,
         });
         state.result = rsp;
       }));

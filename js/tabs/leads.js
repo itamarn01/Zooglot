@@ -100,6 +100,9 @@ function columns() {
     { key: 'first_contact_date', label: 'תאריך התקשרות', type: 'date' },
     { key: 'close_date', label: 'תאריך סגירה', type: 'date' },
     { key: 'package_type', label: 'סוג חבילה', type: 'text' },
+    { key: 'contract_link', label: 'קישור לחוזה', type: 'link', width: 190 },
+    { key: 'creation_log', label: 'Creation Log', type: 'text', width: 190 },
+    { key: 'last_updated_log', label: 'Last Updated', type: 'text', width: 190 },
     { key: 'date_status', label: 'סטטוס תאריך', type: 'text' },
     { key: 'lost_reason', label: 'למה לא?', type: 'text', lostOnly: true },
     { key: 'lost_competitor', label: 'מתחרה שזכה', type: 'text', lostOnly: true },
@@ -204,7 +207,9 @@ function draw() {
       h('button', { class: 'btn sm', onclick: openVoiceModal }, '🎙️ ליד מהקלטה'),
       h('button', { class: 'btn sm', onclick: openMergePicker }, '🔀 מיזוג כפולים'),
       h('button', { class: 'btn sm', onclick: exportCsv }, '⬇️ ייצוא לאקסל'),
-      h('button', { class: 'btn sm', onclick: () => openImportWizard(() => reload()) }, '⬆️ ייבוא מאקסל'),
+      // the wizard defaults to the pipeline currently on screen, so a WON export
+      // lands in WIN and a LOST export in LOST without extra steps
+      h('button', { class: 'btn sm', onclick: () => openImportWizard(() => reload(), ctx.pipeline) }, '⬆️ ייבוא מאקסל'),
       h('button', { class: 'btn sm primary', onclick: openNewLead }, '+ ליד חדש')),
   );
 
@@ -687,6 +692,21 @@ function buildCell(lead, col) {
   }
 
   if (col.type === 'tel') { td.append(telCell(lead[col.key] ?? '', save)); return td; }
+
+  // a pasteable URL with a click-through button, so old Monday contract links
+  // and the live proposal link both open in one tap
+  if (col.type === 'link') {
+    const val = lead[col.key] ?? '';
+    const input = h('input', { class: 'cell-edit', type: 'text', dir: 'ltr', value: val, placeholder: 'https://…' });
+    input.addEventListener('change', () => save(input.value.trim()));
+    const open = h('a', {
+      class: 'icon-btn link-open', title: 'פתיחת הקישור', target: '_blank', rel: 'noopener noreferrer',
+      href: /^https?:\/\//i.test(val) ? val : '#',
+    }, '🔗');
+    if (!/^https?:\/\//i.test(val)) open.style.visibility = 'hidden';
+    td.append(h('div', { class: 'link-cell' }, input, open));
+    return td;
+  }
 
   const typeMap = { text: 'text', date: 'date', number: 'number', tel: 'tel', email: 'email' };
   const input = h('input', {

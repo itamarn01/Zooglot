@@ -240,6 +240,11 @@ table.board tr.row-selected td { background: rgba(134, 205, 222, .14); }
 table.board.grid th:last-child, table.board.grid td:last-child { padding-inline-end: 14px; }
 .checkbox-col { text-align: center; }
 .checkbox-col input { width: auto; margin: 0; cursor: pointer; }
+/* URL cell: editable field + a click-through button */
+.link-cell { display: flex; align-items: center; gap: 2px; }
+.link-cell .cell-edit { flex: 1; min-width: 0; }
+.link-cell .link-open { flex: none; text-decoration: none; }
+
 .name-cell-inner { display: flex; align-items: center; gap: 2px; }
 .name-cell-inner .cell-edit { flex: 1; min-width: 0; }
 .updates-inline { flex: none; position: relative; }
