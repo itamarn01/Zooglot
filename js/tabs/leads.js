@@ -75,6 +75,8 @@ function columns() {
     // scrolling column, so it scrolls away while the name stays pinned.
     { key: '__updates', label: 'Updates', type: 'updates', width: 84 },
     { key: 'contact_name', label: 'איש קשר', type: 'text' },
+    { key: 'groom_name', label: 'שם החתן', type: 'text' },
+    { key: 'bride_name', label: 'שם הכלה', type: 'text' },
     { key: 'contacts', label: 'אנשי קשר נוספים', type: 'contacts' },
     { key: 'owner_id', label: 'בטיפול', type: 'select', options: team.map(t => [t.id, t.full_name || t.email]) },
     { key: 'relation', label: 'קרבה', type: 'select', options: RELATIONS.map(r => [r, r]), chip: 'relation' },
@@ -263,7 +265,8 @@ function pipeBtn(status, label) {
 // fields copied when duplicating a lead — same whitelist as the backend, minus
 // bookkeeping/ingestion columns that shouldn't be cloned onto a new record
 const DUP_FIELDS = [
-  'name', 'contact_name', 'event_type', 'event_date', 'event_location', 'relation',
+  'name', 'contact_name', 'groom_name', 'bride_name', 'event_type', 'event_date',
+  'event_location', 'relation',
   'owner_id', 'team', 'email', 'phone1', 'phone2', 'id_number', 'address',
   'proposed_price', 'deposit_amount', 'stage', 'sale_status', 'next_action',
   'package_type', 'date_status', 'hear_about_us', 'referrer', 'came_to_see_event',
@@ -720,7 +723,9 @@ function buildCell(lead, col) {
   return td;
 }
 
-// ---------------- LOST flow (hard requirement) ----------------
+// ---------------- LOST flow ----------------
+// Reason + competitor are recommended, not required: historical leads genuinely
+// don't have them, and blocking the move only pushed people to invent answers.
 function openLostModal(lead, onCancel, onDone) {
   const reason = h('textarea', { rows: 3, placeholder: 'למה הפסדנו את הליד?' });
   const compSel = h('select', {},
@@ -731,20 +736,21 @@ function openLostModal(lead, onCancel, onDone) {
   compSel.addEventListener('change', () => { newComp.style.display = compSel.value === '__new__' ? '' : 'none'; });
 
   const m = modal(`העברת "${lead.name}" ל-LOST`, h('div', {},
-    h('p', { class: 'muted' }, 'כדי להעביר ליד ל-LOST חובה למלא סיבת הפסד ולבחור את המתחרה שזכה.'),
-    h('label', { class: 'field' }, h('span', {}, 'סיבת הפסד *'), reason),
-    h('label', { class: 'field' }, h('span', {}, 'המתחרה שזכה *'), compSel, newComp)), {
+    h('p', { class: 'muted' }, 'מומלץ למלא סיבת הפסד ומתחרה — אבל אפשר גם להשאיר ריק ולהשלים מאוחר יותר.'),
+    h('label', { class: 'field' }, h('span', {}, 'סיבת הפסד'), reason),
+    h('label', { class: 'field' }, h('span', {}, 'המתחרה שזכה'), compSel, newComp)), {
     actions: [
       {
         label: 'העברה ל-LOST', kind: 'danger', onclick: async (close) => {
-          let competitor = compSel.value === '__new__' ? newComp.value.trim() : compSel.value;
-          if (!reason.value.trim() || !competitor) { toast('יש למלא סיבת הפסד ומתחרה', 'error'); return false; }
+          const competitor = compSel.value === '__new__' ? newComp.value.trim() : compSel.value;
           try {
-            if (compSel.value === '__new__') {
+            if (compSel.value === '__new__' && competitor) {
               await post('/leads/meta/competitors', { name: competitor });
             }
             const { lead: updated } = await patch(`/leads/${lead.id}`, {
-              sale_status: 'lost', lost_reason: reason.value.trim(), lost_competitor: competitor,
+              sale_status: 'lost',
+              lost_reason: reason.value.trim() || null,
+              lost_competitor: competitor || null,
               close_date: new Date().toISOString().slice(0, 10),
             });
             Object.assign(lead, updated);

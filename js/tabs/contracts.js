@@ -20,7 +20,8 @@ const STATUS_LABELS = {
 };
 
 const LEAD_VARS = [
-  ['name', 'שם הליד'], ['contact_name', 'איש קשר'], ['event_date', 'תאריך אירוע'],
+  ['name', 'שם הליד'], ['contact_name', 'איש קשר'],
+  ['groom_name', 'שם החתן'], ['bride_name', 'שם הכלה'], ['event_date', 'תאריך אירוע'],
   ['event_location', 'מיקום'], ['event_type', 'סוג אירוע'], ['email', 'מייל'],
   ['phone1', 'טלפון'], ['id_number', 'ת"ז'], ['address', 'כתובת'],
   ['final_price', 'מחיר סופי'], ['base_price', 'מחיר בסיס'], ['deposit', 'מקדמה'],
@@ -45,7 +46,8 @@ function cleanPastedHtml(html) {
 }
 
 const LEAD_BIND = [
-  ['contact_name', 'שם איש קשר'], ['id_number', 'ת"ז'], ['address', 'כתובת'],
+  ['contact_name', 'שם איש קשר'], ['groom_name', 'שם החתן'], ['bride_name', 'שם הכלה'],
+  ['id_number', 'ת"ז'], ['address', 'כתובת'],
   ['email', 'מייל'], ['phone1', 'טלפון'], ['phone2', 'טלפון נוסף'],
   ['event_date', 'תאריך אירוע'], ['event_location', 'מיקום'], ['event_type', 'סוג אירוע'],
 ];
