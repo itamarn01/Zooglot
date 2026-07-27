@@ -113,15 +113,31 @@ function columns() {
 }
 
 // ---------------- filtering / sorting ----------------
+// One shared collator. `String.localeCompare(x, 'he')` builds a fresh collator on
+// every single comparison — with thousands of leads that is tens of thousands of
+// constructions per sort, and it is the slowest thing on a large board.
+const HE_COLLATOR = new Intl.Collator('he', { numeric: true, sensitivity: 'base' });
+
+// Free-text search scans every field of every lead. Rebuilding that string per
+// keystroke is wasteful, so cache one lowercase haystack per lead and rebuild it
+// only when the lead actually changes (reload/edit bumps updated_at).
+const HAY = new WeakMap();
+function haystack(l) {
+  const cached = HAY.get(l);
+  if (cached && cached.stamp === l.updated_at) return cached.text;
+  let text = '';
+  for (const v of Object.values(l)) if (typeof v === 'string') text += v + '';
+  for (const c of (l.contacts || [])) text += `${c.name || ''}${c.phone || ''}`;
+  text = text.toLowerCase();
+  HAY.set(l, { stamp: l.updated_at, text });
+  return text;
+}
+
 function visibleLeads() {
   let rows = ctx.leads;
   if (ctx.pipeline !== 'all') rows = rows.filter(l => l.sale_status === ctx.pipeline);
   const q = ctx.search.trim().toLowerCase();
-  if (q) {
-    rows = rows.filter(l => Object.values(l).some(v =>
-      typeof v === 'string' && v.toLowerCase().includes(q)) ||
-      (l.contacts || []).some(c => (c.name || '').toLowerCase().includes(q) || (c.phone || '').includes(q)));
-  }
+  if (q) rows = rows.filter(l => haystack(l).includes(q));
   for (const [key, val] of Object.entries(ctx.filters)) {
     if (val === '' || val === null) continue;
     rows = rows.filter(l => String(l[key] ?? '') === String(val));
@@ -133,7 +149,7 @@ function visibleLeads() {
       if (x == null || x === '') return 1;
       if (y == null || y === '') return -1;
       const nx = Number(x), ny = Number(y);
-      const cmp = (!isNaN(nx) && !isNaN(ny)) ? nx - ny : String(x).localeCompare(String(y), 'he');
+      const cmp = (!isNaN(nx) && !isNaN(ny)) ? nx - ny : HE_COLLATOR.compare(String(x), String(y));
       return asc ? cmp : -cmp;
     });
   }
