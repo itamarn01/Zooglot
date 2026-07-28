@@ -60,7 +60,9 @@ function el(tag, attrs = {}, ...kids) {
     if (f.required) input.required = true;
     inputs[f.key] = input;
 
-    const label = (en && f.label_en) || f.label;
+    // the builder's own wording wins — it is already written in the form's
+    // language; label_en is only a fallback for fields that were never labelled
+    const label = f.label || (en && f.label_en) || f.key;
     const kids = [el('label', { for: f.key }, label, f.required ? el('span', { class: 'req' }, ' *') : '')];
     if (f.description) kids.push(el('div', { class: 'field-help' }, f.description));
     kids.push(input);

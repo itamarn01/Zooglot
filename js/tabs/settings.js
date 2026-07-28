@@ -449,7 +449,10 @@ function formBuilderSection(forms, bindableFields) {
         const existing = chosen.get(bf.key);
         const cb = h('input', { type: 'checkbox', checked: chosen.has(bf.key), style: 'width:auto' });
         const req = h('input', { type: 'checkbox', checked: existing?.required || false, style: 'width:auto', title: 'שדה חובה' });
-        const label = h('input', { type: 'text', value: existing?.label || bf.label, style: 'max-width:200px' });
+        // a new English form starts with English wording; an existing form keeps
+        // whatever the band already wrote
+        const defaultLabel = (lang.value === 'en' && bf.label_en) ? bf.label_en : bf.label;
+        const label = h('input', { type: 'text', value: existing?.label || defaultLabel, style: 'max-width:200px' });
         const desc = h('input', {
           type: 'text', value: existing?.description || '',
           placeholder: 'טקסט הסבר לשדה (אופציונלי) — יוצג מתחת לתווית, כמו בטפסי Monday',
@@ -484,7 +487,12 @@ function formBuilderSection(forms, bindableFields) {
       const fields = [...chosen.values()];
       const previewInput = (fl) => {
         const style = 'width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:inherit;font-family:inherit;font-size:14px';
-        if (fl.type === 'select') return h('select', { style, disabled: true }, h('option', {}, en ? '— choose —' : '— בחרו —'), ...(fl.options || []).map(o => h('option', {}, o)));
+        if (fl.type === 'select') {
+          // English forms preview English option labels (the stored value stays Hebrew)
+          const opts = (en && fl.options_en) ? fl.options_en : (fl.options || []);
+          return h('select', { style, disabled: true },
+            h('option', {}, en ? '— choose —' : '— בחרו —'), ...opts.map(o => h('option', {}, o)));
+        }
         if (fl.type === 'textarea') return h('textarea', { style, rows: 3, disabled: true });
         return h('input', { style, type: fl.type || 'text', disabled: true });
       };
@@ -495,10 +503,15 @@ function formBuilderSection(forms, bindableFields) {
         h('h2', { style: `text-align:center;color:${cPrimary.value};font-family:inherit` }, name.value.trim() || (en ? 'Form title' : 'כותרת הטופס')),
         intro.value.trim() ? h('div', { style: 'text-align:center;opacity:.85;font-size:14px;margin-bottom:16px' }, intro.value) : null,
         !fields.length ? h('p', { style: 'text-align:center;opacity:.7' }, en ? 'No fields selected yet' : 'עדיין לא נבחרו שדות') : null,
-        ...fields.map(fl => h('div', { style: 'margin-bottom:15px' },
+        // conditional fields are shown greyed with a note — in the real form they
+        // only appear once the controlling answer is chosen
+        ...fields.map(fl => h('div', { style: `margin-bottom:15px${fl.show_when ? ';opacity:.5' : ''}` },
           h('label', { style: 'display:block;font-size:14px;margin-bottom:3px' },
             fl.label, fl.required ? h('span', { style: `color:${cPrimary.value}` }, ' *') : ''),
           fl.description ? h('div', { style: 'font-size:12.5px;opacity:.65;margin-bottom:5px' }, fl.description) : null,
+          fl.show_when ? h('div', { style: 'font-size:12px;opacity:.8;margin-bottom:5px' },
+            en ? `↳ shown only when "${fl.show_when.equals}" is selected`
+              : `↳ יוצג רק אם נבחר "${fl.show_when.equals}"`) : null,
           previewInput(fl))),
         h('button', {
           disabled: true, style: `width:100%;padding:12px;border:none;border-radius:12px;background:${cPrimary.value};color:#0b2830;font-weight:700;font-family:inherit;font-size:15px;margin-top:6px;cursor:default`,
