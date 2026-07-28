@@ -132,7 +132,20 @@ main#view { padding: 20px; max-width: 1500px; margin: 0 auto; }
 .btn.danger { color: var(--danger); border-color: rgba(239, 93, 112, .4); }
 .btn.danger:hover { background: rgba(239, 93, 112, .12); }
 .btn.sm { padding: 4px 10px; font-size: 13px; border-radius: 8px; }
+.btn.lg { padding: 14px 26px; font-size: 16px; min-height: 52px; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* voice capture — the timer is the only feedback that recording is really on */
+.rec-timer {
+  font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums;
+  text-align: center; margin: 10px 0 14px; color: var(--text-dim); direction: ltr;
+}
+.rec-timer.on { color: var(--danger); }
+.rec-timer.on::before {
+  content: '●'; font-size: 20px; margin-inline-end: 10px; vertical-align: 3px;
+  animation: rec-pulse 1.1s ease-in-out infinite;
+}
+@keyframes rec-pulse { 50% { opacity: .25; } }
 
 input, select, textarea {
   font-family: var(--font-body); font-size: 14px; color: var(--text);

@@ -1399,70 +1399,97 @@ function openMergeResolve(primary, dup, onDone) {
 // any tab, even before the leads tab has ever been mounted (ctx is null then).
 export function openVoiceModal(lead) {
   const isLead = lead && lead.id;
-  let mediaRecorder = null, chunks = [], blob = null;
+  let mediaRecorder = null, chunks = [], stream = null, tick = null, started = 0;
 
-  const status = h('p', { class: 'muted' }, 'הקליטו הודעה קולית או העלו קובץ אודיו — ה-AI יתמלל וימלא את השדות אוטומטית.');
-  const recBtn = h('button', { class: 'btn' }, '🔴 התחלת הקלטה');
-  const fileInput = h('input', { type: 'file', accept: 'audio/*' });
-  const analyzeBtn = h('button', { class: 'btn primary', disabled: true }, '🤖 ניתוח AI');
+  const status = h('p', { class: 'muted' }, 'מבקש גישה למיקרופון…');
+  const timer = h('div', { class: 'rec-timer' }, '0:00');
+  // one button, one job — recording starts by itself, so the whole capture is
+  // open → talk → tap once. A second tap used to be needed just to say "analyse".
+  const recBtn = h('button', { class: 'btn primary lg' }, '⏹️ סיום וניתוח');
+  const retryBtn = h('button', { class: 'btn', style: 'display:none' }, '🔴 הקלטה מחדש');
   const result = h('div', {});
 
-  recBtn.addEventListener('click', async () => {
-    if (mediaRecorder?.state === 'recording') {
-      mediaRecorder.stop();
-      return;
-    }
+  const fmt = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+  function stopTracks() {
+    clearInterval(tick); tick = null;
+    stream?.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+
+  async function startRecording() {
+    retryBtn.style.display = 'none';
+    result.innerHTML = '';
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
       chunks = [];
-      mediaRecorder = new MediaRecorder(stream);
-      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+      // Opus at 24kbps is plenty for speech and roughly a quarter of the default
+      // size — on a phone the upload is the slowest part of the whole flow.
+      const opts = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 24000 }
+        : { audioBitsPerSecond: 24000 };
+      mediaRecorder = new MediaRecorder(stream, opts);
+      mediaRecorder.ondataavailable = e => chunks.push(e.data);
       mediaRecorder.onstop = () => {
-        blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-        stream.getTracks().forEach(t => t.stop());
-        recBtn.textContent = '🔴 הקלטה מחדש';
-        status.textContent = `הקלטה מוכנה (${Math.round(blob.size / 1024)}KB) — לחצו על ניתוח AI.`;
-        analyzeBtn.disabled = false;
+        const blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+        stopTracks();
+        analyze(blob);
       };
       mediaRecorder.start();
-      recBtn.textContent = '⏹️ עצירת הקלטה';
-      status.textContent = 'מקליט… דברו חופשי על הליד.';
+      started = Date.now();
+      timer.textContent = '0:00';
+      timer.classList.add('on');
+      tick = setInterval(() => { timer.textContent = fmt(Math.floor((Date.now() - started) / 1000)); }, 250);
+      recBtn.disabled = false;
+      recBtn.textContent = '⏹️ סיום וניתוח';
+      status.textContent = 'מקליט… דברו חופשי — שם, תאריך, מקום, טלפון, מחיר.';
     } catch {
-      toast('אין גישה למיקרופון — העלו קובץ במקום', 'error');
+      timer.classList.remove('on');
+      status.textContent = 'אין גישה למיקרופון. אשרו את ההרשאה בדפדפן ונסו שוב.';
+      recBtn.style.display = 'none';
+      retryBtn.style.display = '';
     }
-  });
+  }
 
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files[0]) {
-      blob = fileInput.files[0];
-      analyzeBtn.disabled = false;
-      status.textContent = `קובץ נבחר: ${blob.name || 'אודיו'} — לחצו על ניתוח AI.`;
-    }
+  recBtn.addEventListener('click', () => {
+    if (mediaRecorder?.state !== 'recording') return;
+    recBtn.disabled = true;
+    mediaRecorder.stop(); // onstop uploads straight away
   });
+  retryBtn.addEventListener('click', () => { recBtn.style.display = ''; startRecording(); });
 
-  analyzeBtn.addEventListener('click', async () => {
-    if (!blob) return;
-    analyzeBtn.disabled = true;
-    analyzeBtn.textContent = '⏳ מתמלל ומנתח…';
+  async function analyze(blob) {
+    timer.classList.remove('on');
+    status.textContent = '⏳ מתמלל ומנתח…';
+    recBtn.textContent = '⏳ מנתח…';
     try {
       const fd = new FormData();
-      fd.append('audio', blob, blob.name || 'recording.webm');
+      fd.append('audio', blob, 'recording.webm');
       if (isLead) fd.append('lead_id', lead.id);
       const { voice_note } = await upload('/voice', fd);
       renderExtractReview(voice_note);
     } catch (e) {
       toast(e.message, 'error');
-      analyzeBtn.disabled = false;
-      analyzeBtn.textContent = '🤖 ניתוח AI';
+      status.textContent = `הניתוח נכשל: ${e.message}`;
+      recBtn.style.display = 'none';
+      retryBtn.style.display = '';
     }
-  });
+  }
 
+  // every field the AI can now fill — anything missing here would show as a raw
+  // column name in the review list
   const fieldLabels = {
-    name: 'שם', contact_name: 'איש קשר', relation: 'קרבה', event_type: 'סוג אירוע',
-    event_date: 'תאריך אירוע', event_location: 'מיקום', email: 'מייל', phone1: 'טלפון',
-    proposed_price: 'מחיר שהוצע', hear_about_us: 'איך שמעו עלינו', referrer: 'מי המליץ',
-    next_action: 'פעולה הבאה', notes: 'הערות',
+    name: 'שם', contact_name: 'איש קשר', groom_name: 'שם החתן', bride_name: 'שם הכלה',
+    relation: 'קרבה', event_type: 'סוג אירוע', event_date: 'תאריך אירוע',
+    event_location: 'מיקום האירוע', email: 'מייל', phone1: 'טלפון 1', phone2: 'טלפון 2',
+    id_number: 'ת"ז', address: 'כתובת', proposed_price: 'מחיר שהוצע', deposit_amount: 'מקדמה',
+    package_type: 'סוג חבילה', date_status: 'סטטוס תאריך', hear_about_us: 'איך שמעו עלינו',
+    referrer: 'מי המליץ', came_to_see_event: 'באו לראות באירוע', seen_at_date: 'הגיעו בתאריך',
+    seen_at_place: 'מקום שראו', next_action: 'פעולה הבאה', team: 'צוות', notes: 'הערות',
   };
+  const DATE_KEYS = ['event_date', 'seen_at_date'];
 
   function renderExtractReview(note) {
     result.innerHTML = '';
@@ -1472,7 +1499,7 @@ export function openVoiceModal(lead) {
       h('p', { class: 'muted', style: 'max-height:90px;overflow-y:auto' }, note.transcript || ''),
       h('h4', {}, '🤖 שדות שזוהו — ניתן לערוך לפני שמירה'),
       ...Object.entries(note.extracted || {}).filter(([, v]) => v !== null && v !== '').map(([k, v]) => {
-        inputs[k] = h('input', { type: 'text', value: v });
+        inputs[k] = h('input', { type: DATE_KEYS.includes(k) ? 'date' : 'text', value: v });
         return h('label', { class: 'field' }, h('span', {}, fieldLabels[k] || k), inputs[k]);
       }),
       h('button', {
@@ -1487,14 +1514,21 @@ export function openVoiceModal(lead) {
           if (ctx) reload(); else location.hash = 'tab=leads';
         },
       }, isLead ? '💾 עדכון הליד' : '💾 יצירת ליד חדש'));
-    analyzeBtn.style.display = 'none';
     recBtn.style.display = 'none';
-    fileInput.style.display = 'none';
+    retryBtn.style.display = '';
+    retryBtn.textContent = '🔴 הקלטה נוספת';
     status.style.display = 'none';
+    timer.style.display = 'none';
   }
 
-  modal(isLead ? `🎙️ הקלטה קולית — ${lead.name}` : '🎙️ ליד חדש מהקלטה קולית',
-    h('div', {}, status, h('div', { class: 'flex', style: 'flex-wrap:wrap' }, recBtn, fileInput, analyzeBtn), result));
+  const m = modal(isLead ? `🎙️ הקלטה קולית — ${lead.name}` : '🎙️ ליד חדש מהקלטה קולית',
+    h('div', {}, status, timer, h('div', { class: 'flex', style: 'flex-wrap:wrap' }, recBtn, retryBtn), result));
+
+  // release the mic if the modal is dismissed mid-recording
+  m?.box?.closest('.modal-backdrop')?.addEventListener('click', e => {
+    if (e.target.classList.contains('modal-backdrop')) stopTracks();
+  });
+  startRecording();
 }
 
 // ---------------- calendar ----------------
