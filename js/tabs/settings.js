@@ -409,6 +409,7 @@ function formBuilderSection(forms, bindableFields) {
             });
           },
         }, '</> הטמעה'),
+        h('button', { class: 'btn sm', onclick: () => openFormAnalytics(f) }, '📊 אנליטיקה'),
         h('button', { class: 'btn sm', onclick: () => openBuilder(f) }, '✏️ עריכה'),
         h('button', {
           class: 'icon-btn', onclick: async () => {
@@ -421,6 +422,95 @@ function formBuilderSection(forms, bindableFields) {
     }
   };
   renderList(forms);
+
+  // ---- per-form analytics ----
+  const COUNTRY_NAMES = {
+    IL: '🇮🇱 ישראל', US: '🇺🇸 ארה"ב', GB: '🇬🇧 בריטניה', FR: '🇫🇷 צרפת', DE: '🇩🇪 גרמניה',
+    CA: '🇨🇦 קנדה', AU: '🇦🇺 אוסטרליה', RU: '🇷🇺 רוסיה', UA: '🇺🇦 אוקראינה', IT: '🇮🇹 איטליה',
+    ES: '🇪🇸 ספרד', NL: '🇳🇱 הולנד', BE: '🇧🇪 בלגיה', CH: '🇨🇭 שווייץ', AT: '🇦🇹 אוסטריה',
+    BR: '🇧🇷 ברזיל', AR: '🇦🇷 ארגנטינה', MX: '🇲🇽 מקסיקו', ZA: '🇿🇦 דרום אפריקה',
+    TR: '🇹🇷 טורקיה', GR: '🇬🇷 יוון', CY: '🇨🇾 קפריסין', IN: '🇮🇳 הודו', TH: '🇹🇭 תאילנד',
+  };
+  const DEVICE_NAMES = { mobile: '📱 מובייל', tablet: '📲 טאבלט', desktop: '💻 דסקטופ' };
+
+  const fmtDuration = (ms) => {
+    if (!ms) return '—';
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s} שנ׳`;
+    const m = Math.floor(s / 60);
+    return `${m}:${String(s % 60).padStart(2, '0')} דק׳`;
+  };
+
+  async function openFormAnalytics(form) {
+    const body = h('div', {}, h('p', { class: 'muted' }, 'טוען נתונים…'));
+    const m = modal(`📊 ${form.name}`, body, {
+      wide: true, actions: [{ label: 'סגירה', onclick: (close) => close() }],
+    });
+
+    let data;
+    try { data = await get(`/forms/${form.id}/analytics`); }
+    catch (e) {
+      body.innerHTML = '';
+      body.append(h('div', { class: 'empty-state' }, h('div', { class: 'big' }, '😕'),
+        h('p', {}, e.message),
+        h('p', { class: 'muted' }, 'אם טרם הרצתם את מיגרציה 014 — זו כנראה הסיבה.')));
+      return;
+    }
+
+    const t = data.totals;
+    const tile = (num, label, hint, color) => h('div', { class: 'card stat-tile', style: 'padding:14px' },
+      h('div', { class: 'num', style: `font-size:26px${color ? `;color:${color}` : ''}` }, num),
+      h('div', { class: 'lbl' }, label),
+      hint ? h('div', { class: 'muted', style: 'font-size:11.5px;margin-top:2px' }, hint) : null);
+
+    // a breakdown table that also shows the conversion rate per segment — the
+    // interesting question is not just "where from" but "which converts"
+    const breakdown = (title, rows, nameMap) => {
+      if (!rows.length) return null;
+      const max = Math.max(...rows.map(r => r.views));
+      return h('div', { class: 'card mt', style: 'padding:14px' },
+        h('h4', { style: 'margin:0 0 10px' }, title),
+        ...rows.slice(0, 8).map(r => h('div', { class: 'bd-row' },
+          h('div', { class: 'bd-label' }, (nameMap && nameMap[r.key]) || r.key),
+          h('div', { class: 'bd-bar' }, h('div', {
+            class: 'bd-fill', style: `width:${max ? Math.round(r.views / max * 100) : 0}%`,
+          })),
+          h('div', { class: 'bd-num' }, `${r.views}`),
+          h('div', { class: 'bd-rate', title: 'יחס המרה בפלח הזה' }, `${r.rate}%`))));
+    };
+
+    body.innerHTML = '';
+    body.append(
+      h('div', { class: 'grid-4' },
+        tile(String(t.views), 'TOTAL VIEWS'),
+        tile(String(t.submissions), 'TOTAL SUBMISSIONS', null, 'var(--win)'),
+        tile(`${t.completion_rate}%`, 'COMPLETION RATE',
+          t.completion_rate < 8 ? 'ממוצע ענף ~5-10%' : 'מעל הממוצע 👏',
+          t.completion_rate >= 8 ? 'var(--win)' : 'var(--warn)'),
+        tile(fmtDuration(t.avg_ms), 'AVG SUBMISSION TIME', `חציון ${fmtDuration(t.median_ms)}`)),
+
+      data.funnel.length ? h('div', { class: 'card mt', style: 'padding:14px' },
+        h('h4', { style: 'margin:0 0 10px' }, '🪜 משפך השלבים — היכן נוטשים'),
+        ...data.funnel.map((s, i) => {
+          const first = data.funnel[0].reached || 1;
+          const pct = Math.round(s.reached / first * 100);
+          const dropped = i > 0 ? data.funnel[i - 1].reached - s.reached : 0;
+          return h('div', { class: 'bd-row' },
+            h('div', { class: 'bd-label' }, `${s.step}. ${s.title}`),
+            h('div', { class: 'bd-bar' }, h('div', { class: 'bd-fill', style: `width:${pct}%` })),
+            h('div', { class: 'bd-num' }, String(s.reached)),
+            h('div', { class: 'bd-rate', style: dropped ? 'color:var(--danger)' : '' },
+              dropped ? `−${dropped}` : `${pct}%`));
+        })) : null,
+
+      breakdown('🌍 לפי מדינה', data.by_country, COUNTRY_NAMES),
+      breakdown('📱 לפי מכשיר', data.by_device, DEVICE_NAMES),
+      breakdown('🌐 לפי דפדפן', data.by_browser),
+      breakdown('💾 לפי מערכת הפעלה', data.by_os),
+
+      t.views === 0 ? h('p', { class: 'muted mt' },
+        'עדיין אין צפיות. הנתונים נאספים מרגע שהטופס נטען אצל גולש אמיתי — צפיות שלכם בעריכה לא נספרות.') : null);
+  }
 
   function openBuilder(existing) {
     const isNew = !existing;
@@ -442,6 +532,42 @@ function formBuilderSection(forms, bindableFields) {
       if (logoFile.files[0]) { logoData = await fileToDataUrl(logoFile.files[0], 400); toast('לוגו נטען ✓', 'success'); }
     });
 
+    // ---- form type + conversion copy ----
+    // 'steps' splits the fields across screens. Worth it from ~4 fields up; for a
+    // 2–3 field form the extra clicks cost more than the momentum gains.
+    const formType = h('select', {},
+      h('option', { value: 'single', selected: f.form_type !== 'steps' }, '📄 טופס רגיל (עמוד אחד)'),
+      h('option', { value: 'steps', selected: f.form_type === 'steps' }, '🪜 טופס מפורק לשלבים'));
+    const submitLabel = h('input', {
+      type: 'text', value: f.submit_label || '',
+      placeholder: 'למשל: בדקו זמינות לתאריך שלי (במקום "שליחה")',
+    });
+    const nextLabel = h('input', {
+      type: 'text', value: f.next_label || '', placeholder: 'למשל: המשך לקבלת הצעת מחיר ←',
+    });
+    const privacyNote = h('input', {
+      type: 'text', value: f.privacy_note || '',
+      placeholder: 'למשל: אנחנו מכבדים את פרטיותכם ולא מעבירים פרטים לגורם שלישי',
+    });
+    const stepTitleInputs = [1, 2, 3, 4].map((n) => h('input', {
+      type: 'text', value: (f.step_titles || [])[n - 1] || '',
+      placeholder: `כותרת שלב ${n} (אופציונלי)`,
+    }));
+
+    // step controls only matter for a stepped form — hide them otherwise so the
+    // builder doesn't look more complicated than it is
+    const stepWraps = [];
+    const stepTitlesBox = h('div', { class: 'grid-2' },
+      ...stepTitleInputs.map((inp, i) => h('label', { class: 'field' }, h('span', {}, `כותרת שלב ${i + 1}`), inp)));
+    const nextLabelWrap = h('label', { class: 'field' }, h('span', {}, 'טקסט כפתור "המשך"'), nextLabel);
+    function syncStepVisibility() {
+      const on = formType.value === 'steps';
+      stepWraps.forEach(w => { w.style.display = on ? '' : 'none'; });
+      stepTitlesBox.style.display = on ? '' : 'none';
+      nextLabelWrap.style.display = on ? '' : 'none';
+    }
+    formType.addEventListener('change', syncStepVisibility);
+
     // field picker from מעקב זוגות columns
     const chosen = new Map((f.fields || []).map(x => [x.key, x]));
     const fieldRows = h('div', {},
@@ -457,6 +583,13 @@ function formBuilderSection(forms, bindableFields) {
           type: 'text', value: existing?.description || '',
           placeholder: 'טקסט הסבר לשדה (אופציונלי) — יוצג מתחת לתווית, כמו בטפסי Monday',
         });
+        // which step this field belongs to (multi-step forms only). Put the easy,
+        // non-personal questions in step 1 and name/phone last — that ordering is
+        // what actually lifts completion.
+        const stepSel = h('select', { style: 'max-width:110px' },
+          ...[1, 2, 3, 4].map(n => h('option', { value: n, selected: (existing?.step || 1) === n }, `שלב ${n}`)));
+        const stepWrap = h('span', { class: 'flex', style: 'gap:4px' }, stepSel);
+
         const sync = () => {
           if (cb.checked) {
             chosen.set(bf.key, {
@@ -466,6 +599,7 @@ function formBuilderSection(forms, bindableFields) {
               options_en: bf.options_en, label_en: bf.label_en,
               other_free_text: bf.other_free_text, show_when: bf.show_when,
               required: req.checked, description: desc.value,
+              step: Number(stepSel.value) || 1,
             });
           } else chosen.delete(bf.key);
         };
@@ -473,13 +607,17 @@ function formBuilderSection(forms, bindableFields) {
         req.addEventListener('change', sync);
         label.addEventListener('change', sync);
         desc.addEventListener('input', sync);
+        stepSel.addEventListener('change', sync);
+        stepWraps.push(stepWrap);
         return h('div', { class: 'card', style: 'padding:9px 12px;margin-bottom:8px' },
           h('div', { class: 'flex', style: 'flex-wrap:wrap' },
             cb, label,
             h('span', { class: 'muted' }, `(${bf.type})`), h('span', { style: 'flex:1' }),
+            stepWrap,
             h('label', { class: 'flex', style: 'gap:4px' }, req, h('span', { class: 'muted' }, 'חובה'))),
           h('div', { class: 'mt', style: 'margin-top:6px' }, desc));
       }));
+    syncStepVisibility();
 
     // live preview of the (unsaved) form as the client would see it — mirrors form.js's rendering
     function openPreview() {
@@ -530,6 +668,16 @@ function formBuilderSection(forms, bindableFields) {
         h('label', { class: 'flex' }, h('span', { class: 'muted' }, 'צבע ראשי'), cPrimary),
         h('label', { class: 'flex' }, h('span', { class: 'muted' }, 'צבע רקע'), cBg),
         h('label', { class: 'flex' }, h('span', { class: 'muted' }, 'לוגו'), logoFile)),
+      h('div', { class: 'ce-terms mt' },
+        h('h5', {}, '🎯 המרה — מבנה וטקסטים'),
+        h('label', { class: 'field' }, h('span', {}, 'מבנה הטופס'), formType),
+        h('p', { class: 'muted', style: 'font-size:12px;margin:2px 0 8px' },
+          'שלבים מומלצים מ-4 שדות ומעלה: מתחילים בשאלות הקלות (תאריך, אזור) ומבקשים שם וטלפון רק בשלב האחרון. בטופס של 2–3 שדות עדיף עמוד אחד.'),
+        stepTitlesBox,
+        h('div', { class: 'grid-2' },
+          h('label', { class: 'field' }, h('span', {}, 'טקסט כפתור השליחה'), submitLabel),
+          nextLabelWrap),
+        h('label', { class: 'field' }, h('span', {}, 'הערת פרטיות (מתחת לכפתור)'), privacyNote)),
       h('div', { class: 'flex between mt' },
         h('h4', { style: 'margin:0' }, 'בחירת שדות (מתוך עמודות מעקב זוגות)'),
         h('button', { type: 'button', class: 'btn sm', onclick: () => openPreview() }, '👁️ תצוגה מקדימה')),
@@ -544,6 +692,11 @@ function formBuilderSection(forms, bindableFields) {
             logo_url: logoData || null,
             colors: { primary: cPrimary.value, bg: cBg.value, text: '#eef7fa' },
             fields: [...chosen.values()],
+            form_type: formType.value,
+            submit_label: submitLabel.value.trim() || null,
+            next_label: nextLabel.value.trim() || null,
+            privacy_note: privacyNote.value.trim() || null,
+            step_titles: stepTitleInputs.map(i => i.value.trim()),
           };
           const rsp = isNew ? await post('/forms', body) : await patch(`/forms/${f.id}`, body);
           close();

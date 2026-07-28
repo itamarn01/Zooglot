@@ -240,6 +240,18 @@ table.board tr.row-selected td { background: rgba(134, 205, 222, .14); }
 table.board.grid th:last-child, table.board.grid td:last-child { padding-inline-end: 14px; }
 .checkbox-col { text-align: center; }
 .checkbox-col input { width: auto; margin: 0; cursor: pointer; }
+/* form analytics breakdown rows */
+.bd-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 13px; }
+.bd-label { flex: 0 0 34%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-bar { flex: 1; height: 8px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
+.bd-fill { height: 100%; background: var(--brand); border-radius: 99px; }
+.bd-num { flex: 0 0 44px; text-align: end; font-weight: 700; }
+.bd-rate { flex: 0 0 52px; text-align: end; color: var(--text-dim); font-size: 12px; }
+@media (max-width: 640px) {
+  .bd-label { flex-basis: 40%; }
+  .bd-num { flex-basis: 36px; }
+}
+
 /* duplicate-phone notice above the board */
 .dup-banner {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;

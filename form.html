@@ -43,11 +43,33 @@
     select option { color: #16232a; }
     /* free-text box revealed by choosing "other" */
     .other-input { margin-top: 8px; }
-    button[type=submit] {
-      width: 100%; margin-top: 20px; padding: 13px; font-family: inherit; font-size: 16px; font-weight: 700;
-      background: var(--f-primary, #87cedf); color: #0b2830; border: none; border-radius: 12px; cursor: pointer;
+    /* 48px minimum tap targets — most of this traffic is thumbs on phones */
+    .form-nav { display: flex; gap: 10px; margin-top: 22px; }
+    .btn-primary, .btn-secondary {
+      flex: 1; min-height: 52px; padding: 14px; font-family: inherit; font-size: 16px; font-weight: 700;
+      border-radius: 12px; cursor: pointer; border: none;
     }
-    button[type=submit]:hover { filter: brightness(1.08); }
+    .btn-primary { background: var(--f-primary, #87cedf); color: #0b2830; }
+    .btn-primary:hover { filter: brightness(1.08); }
+    .btn-primary:disabled { opacity: .6; cursor: default; }
+    .btn-secondary {
+      flex: 0 0 auto; min-width: 96px; background: transparent; color: inherit;
+      border: 1px solid rgba(255,255,255,.25);
+    }
+    input, select, textarea { min-height: 48px; }
+    textarea { min-height: 96px; }
+
+    /* multi-step: progress is what makes finishing feel close */
+    .progress { height: 6px; border-radius: 99px; background: rgba(255,255,255,.12); overflow: hidden; margin-bottom: 6px; }
+    .progress-fill { height: 100%; background: var(--f-primary, #87cedf); width: 0; transition: width .3s ease; }
+    .progress-text { font-size: 12.5px; opacity: .7; margin-bottom: 10px; }
+    .step-title { font-size: 17px; margin: 4px 0 2px; color: var(--f-primary, #87cedf); }
+
+    /* inline validation */
+    .field-error { color: #ff8f8f; font-size: 12.5px; margin-top: 5px; }
+    input.invalid, select.invalid, textarea.invalid { border-color: #ff8f8f; }
+
+    .privacy-note { font-size: 12.5px; opacity: .62; text-align: center; margin-top: 12px; line-height: 1.5; }
     .done { text-align: center; padding: 40px 10px; font-size: 18px; }
   </style>
 </head>
