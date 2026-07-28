@@ -1,0 +1,53 @@
+{
+  "name": "Zooglot.DB — KOLOT",
+  "short_name": "Zooglot",
+  "description": "מערכת ניהול לידים, חוזים וחבילות של להקת קולות",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e1b20",
+  "theme_color": "#0e1b20",
+  "icons": [
+    { "src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "share_target": {
+    "action": "/share-voice",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "audio",
+          "accept": [
+            "audio/*",
+            "audio/ogg",
+            "audio/opus",
+            "audio/mpeg",
+            "audio/mp4",
+            "audio/aac",
+            "audio/amr",
+            "audio/wav",
+            "audio/webm",
+            "video/ogg",
+            ".opus",
+            ".ogg",
+            ".oga",
+            ".m4a",
+            ".mp3",
+            ".aac",
+            ".amr",
+            ".wav"
+          ]
+        }
+      ]
+    }
+  }
+}

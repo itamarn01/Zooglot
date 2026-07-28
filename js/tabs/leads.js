@@ -1397,7 +1397,10 @@ function openMergeResolve(primary, dup, onDone) {
 // ---------------- voice note (AI) ----------------
 // Exported so the mobile bottom-nav FAB can capture a lead by voice from
 // any tab, even before the leads tab has ever been mounted (ctx is null then).
-export function openVoiceModal(lead) {
+// `shared` = { blob, name } when the note arrived from the phone's share sheet
+// (a WhatsApp voice message) instead of being recorded here. Same pipeline from
+// that point on — only the source of the audio differs.
+export function openVoiceModal(lead, shared = null) {
   const isLead = lead && lead.id;
   let mediaRecorder = null, chunks = [], stream = null, tick = null, started = 0;
 
@@ -1460,13 +1463,14 @@ export function openVoiceModal(lead) {
   });
   retryBtn.addEventListener('click', () => { recBtn.style.display = ''; startRecording(); });
 
-  async function analyze(blob) {
+  async function analyze(blob, filename = 'recording.webm') {
     timer.classList.remove('on');
     status.textContent = '⏳ מתמלל ומנתח…';
+    recBtn.disabled = true;
     recBtn.textContent = '⏳ מנתח…';
     try {
       const fd = new FormData();
-      fd.append('audio', blob, 'recording.webm');
+      fd.append('audio', blob, filename);
       if (isLead) fd.append('lead_id', lead.id);
       const { voice_note } = await upload('/voice', fd);
       renderExtractReview(voice_note);
@@ -1521,14 +1525,26 @@ export function openVoiceModal(lead) {
     timer.style.display = 'none';
   }
 
-  const m = modal(isLead ? `🎙️ הקלטה קולית — ${lead.name}` : '🎙️ ליד חדש מהקלטה קולית',
+  const title = shared
+    ? '📲 הקלטה ששותפה מוואטסאפ'
+    : (isLead ? `🎙️ הקלטה קולית — ${lead.name}` : '🎙️ ליד חדש מהקלטה קולית');
+  const m = modal(title,
     h('div', {}, status, timer, h('div', { class: 'flex', style: 'flex-wrap:wrap' }, recBtn, retryBtn), result));
 
   // release the mic if the modal is dismissed mid-recording
   m?.box?.closest('.modal-backdrop')?.addEventListener('click', e => {
     if (e.target.classList.contains('modal-backdrop')) stopTracks();
   });
-  startRecording();
+
+  if (shared) {
+    // nothing to record — the audio is already here
+    timer.style.display = 'none';
+    retryBtn.style.display = 'none';
+    status.textContent = `📎 ${shared.name} (${Math.round(shared.blob.size / 1024)}KB)`;
+    analyze(shared.blob, shared.name);
+  } else {
+    startRecording();
+  }
 }
 
 // ---------------- calendar ----------------

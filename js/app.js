@@ -93,6 +93,8 @@ async function enterApp(user) {
   showSplash(`שלום, ${(user.full_name || '').split(' ')[0] || 'ברוך הבא'} 👋`);
   await loadTeam();
   renderApp();
+  // a note shared while logged out waits in the cache until login finishes
+  takeSharedAudio();
 }
 
 async function boot() {
@@ -107,6 +109,7 @@ async function boot() {
     state.user = user;
     await loadTeam();
     renderApp();
+    takeSharedAudio();
   } catch {
     setToken(null);
     renderAuth(enterApp);
@@ -120,11 +123,50 @@ async function loadTeam() {
   } catch { state.team = []; }
 }
 
+// ---------------- shared voice notes (WhatsApp → share sheet → here) --------
+// The service worker parks the shared file in the Cache API and redirects here
+// with #shared-voice=1, because a redirect cannot carry a file body.
+const SHARE_CACHE = 'zooglot-shared-audio';
+const SHARE_KEY = '/__shared-audio';
+
+async function takeSharedAudio() {
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const flag = hash.get('shared-voice');
+  if (!flag) return;
+
+  // clear the marker first, so a refresh never re-opens the same capture
+  hash.delete('shared-voice');
+  history.replaceState(null, '', location.pathname + (hash.toString() ? '#' + hash : ''));
+
+  if (flag === 'empty') return toast('לא התקבל קובץ אודיו מהשיתוף', 'error');
+  if (flag === 'error') return toast('השיתוף נכשל — נסו שוב', 'error');
+  try {
+    const cache = await caches.open(SHARE_CACHE);
+    const rsp = await cache.match(SHARE_KEY);
+    if (!rsp) return;
+    const blob = await rsp.blob();
+    const name = decodeURIComponent(rsp.headers.get('X-Shared-Name') || 'shared.ogg');
+    await cache.delete(SHARE_KEY); // one shot — never replay an old note
+    openVoiceModal(null, { blob, name });
+  } catch {
+    toast('לא הצלחתי לקרוא את ההקלטה ששותפה', 'error');
+  }
+}
+
+// Registered only to enable the share target — sw.js caches nothing.
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
 window.addEventListener('hashchange', () => {
   const hash = new URLSearchParams(location.hash.slice(1));
   if (hash.get('calendar') === 'connected') toast('יומן Google חובר בהצלחה ✓', 'success');
   if (hash.get('calendar') === 'error') toast(`שגיאה בחיבור היומן: ${hash.get('msg') || ''}`, 'error');
   if (state.user) renderApp();
+  // an already-running standalone window gets the share as a hash change
+  if (state.user && hash.get('shared-voice')) takeSharedAudio();
 });
 
+registerServiceWorker();
 boot();

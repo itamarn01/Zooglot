@@ -18,11 +18,26 @@
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=3600" }
       ]
+    },
+    {
+      "source": "/sw.js",
+      "headers": [
+        { "key": "Content-Type", "value": "application/javascript; charset=utf-8" },
+        { "key": "Service-Worker-Allowed", "value": "/" },
+        { "key": "Cache-Control", "value": "no-cache" }
+      ]
+    },
+    {
+      "source": "/manifest.json",
+      "headers": [
+        { "key": "Content-Type", "value": "application/manifest+json; charset=utf-8" },
+        { "key": "Cache-Control", "value": "public, max-age=3600" }
+      ]
     }
   ],
   "rewrites": [
     {
-      "source": "/((?!api|assets|css|js|portal\\.html|form\\.html|favicon).*)",
+      "source": "/((?!api|assets|css|js|sw\\.js|manifest\\.json|portal\\.html|form\\.html|favicon).*)",
       "destination": "/index.html"
     }
   ]
