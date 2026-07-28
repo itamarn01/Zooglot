@@ -1397,9 +1397,9 @@ function openMergeResolve(primary, dup, onDone) {
 // ---------------- voice note (AI) ----------------
 // Exported so the mobile bottom-nav FAB can capture a lead by voice from
 // any tab, even before the leads tab has ever been mounted (ctx is null then).
-// `shared` = { blob, name } when the note arrived from the phone's share sheet
-// (a WhatsApp voice message) instead of being recorded here. Same pipeline from
-// that point on — only the source of the audio differs.
+// `shared` describes audio that arrived from outside instead of being recorded:
+//   { blob, name } — Android share sheet handed us the file (Web Share Target)
+//   { note }       — the iPhone Shortcut already uploaded it; we only review
 export function openVoiceModal(lead, shared = null) {
   const isLead = lead && lead.id;
   let mediaRecorder = null, chunks = [], stream = null, tick = null, started = 0;
@@ -1528,6 +1528,8 @@ export function openVoiceModal(lead, shared = null) {
   const title = shared
     ? '📲 הקלטה ששותפה מוואטסאפ'
     : (isLead ? `🎙️ הקלטה קולית — ${lead.name}` : '🎙️ ליד חדש מהקלטה קולית');
+  // fall back to the mic if a shared note fails — never leave a dead end
+  const shareFailed = () => { recBtn.style.display = ''; retryBtn.style.display = ''; };
   const m = modal(title,
     h('div', {}, status, timer, h('div', { class: 'flex', style: 'flex-wrap:wrap' }, recBtn, retryBtn), result));
 
@@ -1536,7 +1538,19 @@ export function openVoiceModal(lead, shared = null) {
     if (e.target.classList.contains('modal-backdrop')) stopTracks();
   });
 
-  if (shared) {
+  if (shared?.note) {
+    // already transcribed and extracted by the Shortcut — straight to review
+    timer.style.display = 'none';
+    recBtn.style.display = 'none';
+    status.style.display = 'none';
+    if (shared.note.status === 'failed' || !shared.note.extracted) {
+      status.style.display = '';
+      status.textContent = 'הניתוח של ההקלטה ששותפה נכשל. אפשר להקליט כאן במקום.';
+      shareFailed();
+    } else {
+      renderExtractReview(shared.note);
+    }
+  } else if (shared?.blob) {
     // nothing to record — the audio is already here
     timer.style.display = 'none';
     retryBtn.style.display = 'none';

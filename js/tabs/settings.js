@@ -164,6 +164,74 @@ export async function renderSettingsTab(view, state) {
         'ב-Meta: Developers → האפליקציה → Webhooks → Instagram → Subscribe to messages, ואז הדביקו את שתי הכתובות שלמעלה.'));
   }
 
+  // iPhone voice sharing. Android gets this free via the Web Share Target in
+  // manifest.json; iOS has no such API, so the share sheet is reached through a
+  // Shortcut that posts to us with a personal token. The card's whole job is to
+  // hand over the token + URL and spell out the six taps that build it.
+  function voiceShareCard() {
+    const box = h('div', { class: 'wa-card' });
+
+    const copyLine = (label, value) => h('div', { style: 'margin-bottom:8px' },
+      h('p', { class: 'muted', style: 'margin:0 0 3px;font-size:12.5px' }, label),
+      h('div', {
+        class: 'code-box', style: 'cursor:pointer',
+        onclick: () => { navigator.clipboard?.writeText(value); toast('הועתק ✓', 'success'); },
+      }, value));
+
+    const steps = (info) => modal('📱 בניית הקיצור באייפון', h('div', { class: 'howto' },
+      h('p', {}, 'פעם אחת בלבד. אחר כך שיתוף של הקלטה מוואטסאפ ייצור ליד.'),
+      h('ol', {},
+        h('li', {}, 'פתחו את אפליקציית ', h('b', {}, 'Shortcuts'), ' (״קיצורי דרך״) ← ', h('b', {}, '+'), ' ליצירת קיצור חדש.'),
+        h('li', {}, 'לחצו על ', h('b', {}, 'ⓘ'), ' למטה ← הפעילו ', h('b', {}, 'Show in Share Sheet'), '. תחת ', h('b', {}, 'Share Sheet Types'), ' סמנו ', h('b', {}, 'Media'), ' ו-', h('b', {}, 'Files'), ' בלבד.'),
+        h('li', {}, 'הוסיפו פעולה ', h('b', {}, 'Get Contents of URL'), ' והדביקו בשדה ה-URL:'),
+        copyLine('', info.endpoint),
+        h('li', {}, 'פתחו את ', h('b', {}, 'Show More'), ' בתוך אותה פעולה והגדירו:',
+          h('ul', {},
+            h('li', {}, h('b', {}, 'Method'), ': POST'),
+            h('li', {}, h('b', {}, 'Headers'), ' ← Add header — Key: ', h('code', {}, 'X-Zooglot-Token'), ', Value: הטוקן שלמטה'),
+            h('li', {}, h('b', {}, 'Request Body'), ': Form'),
+            h('li', {}, 'Add new field ← ', h('b', {}, 'File'), ' — Key: ', h('code', {}, 'audio'), ', Value: ', h('b', {}, 'Shortcut Input')))),
+        copyLine('הטוקן האישי שלכם (Value של ה-Header):', info.token || ''),
+        h('li', {}, 'הוסיפו פעולה ', h('b', {}, 'Get Dictionary Value'), ' — Get ', h('b', {}, 'Value'), ' for ', h('code', {}, 'url'), ' in ', h('b', {}, 'Contents of URL'), '.'),
+        h('li', {}, 'הוסיפו פעולה ', h('b', {}, 'Open URLs'), ' עם ', h('b', {}, 'Dictionary Value'), '.'),
+        h('li', {}, 'תנו לקיצור שם — למשל ', h('b', {}, 'שליחה ל-Zooglot'), ' — ושמרו.')),
+      h('p', { class: 'muted' },
+        'מעכשיו: בוואטסאפ ← לחיצה ארוכה על ההקלטה ← שיתוף ← הקיצור. Zooglot ייפתח עם השדות מזוהים לאישור.'),
+      h('p', { class: 'muted', style: 'font-size:12.5px' },
+        '⚠️ הטוקן הוא סיסמה לכל דבר — מי שמחזיק בו יכול ליצור לידים בשמכם. אל תשתפו אותו. יצירת טוקן חדש מבטלת מיידית את הקודם.')));
+
+    const render = (info) => {
+      box.innerHTML = '';
+      box.append(
+        h('h4', {}, '📲 שיתוף הקלטות מוואטסאפ'),
+        h('p', { class: 'muted', style: 'font-size:13px' },
+          'אנדרואיד: התקינו את Zooglot למסך הבית ו-Zooglot יופיע בתפריט השיתוף לבד. ' +
+          'אייפון: iOS לא תומך בזה, ולכן נדרש קיצור (Shortcut) חד-פעמי.'),
+        h('p', {}, statusDot(!!info.token),
+          info.token ? ' טוקן פעיל — הקיצור יכול לשלוח' : ' לא נוצר טוקן עדיין'),
+        h('div', { class: 'flex', style: 'flex-wrap:wrap' },
+          h('button', {
+            class: 'btn primary sm', onclick: withBusy(async () => {
+              const fresh = await post('/settings/voice-share', {});
+              toast(info.token ? 'נוצר טוקן חדש — עדכנו אותו בקיצור' : 'טוקן נוצר ✓', 'success');
+              render(fresh);
+              steps(fresh);
+            }),
+          }, info.token ? '🔄 יצירת טוקן חדש' : '🔑 יצירת טוקן'),
+          info.token ? h('button', { class: 'btn sm', onclick: () => steps(info) }, '📱 הוראות לאייפון') : null,
+          info.token ? h('button', {
+            class: 'btn sm danger', onclick: withBusy(async () => {
+              render(await del('/settings/voice-share'));
+              toast('הטוקן בוטל', 'success');
+            }),
+          }, 'ביטול') : null));
+    };
+
+    render({ token: null, endpoint: '' });
+    get('/settings/voice-share').then(render).catch(() => {});
+    return box;
+  }
+
   grid.append(h('div', { class: 'card' },
     h('h3', {}, iconBadge('🔌', 'cyan'), 'אינטגרציות'),
     h('p', {}, statusDot(!integrations.mock_db), ` בסיס נתונים: ${integrations.mock_db ? 'מצב Mock מקומי (הזן מפתחות Supabase ב-.env)' : 'Supabase מחובר'}`),
@@ -173,6 +241,7 @@ export async function renderSettingsTab(view, state) {
     h('p', {}, statusDot(integrations.clarity),
       ` Clarity (הקלטות מסך בטפסים): ${integrations.clarity ? 'פעיל' : 'לא מוגדר — הוסיפו CLARITY_PROJECT_ID'}`),
     whatsappCard(),
+    voiceShareCard(),
     instagramCard(),
     h('hr', { style: 'border-color:var(--line)' }),
     h('h4', {}, '📅 Google Calendar'),

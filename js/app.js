@@ -131,6 +131,23 @@ const SHARE_KEY = '/__shared-audio';
 
 async function takeSharedAudio() {
   const hash = new URLSearchParams(location.hash.slice(1));
+
+  // iPhone route: the Shortcut already uploaded and analysed the audio, and
+  // opens us on the finished note. iOS has no Web Share Target, so the file
+  // itself never passes through the browser.
+  const noteId = hash.get('voice-note');
+  if (noteId) {
+    hash.delete('voice-note');
+    history.replaceState(null, '', location.pathname + (hash.toString() ? '#' + hash : ''));
+    try {
+      const { voice_note } = await get(`/voice/${noteId}`);
+      openVoiceModal(null, { note: voice_note });
+    } catch (e) {
+      toast(e.message || 'לא מצאתי את ההקלטה ששותפה', 'error');
+    }
+    return;
+  }
+
   const flag = hash.get('shared-voice');
   if (!flag) return;
 
@@ -165,7 +182,7 @@ window.addEventListener('hashchange', () => {
   if (hash.get('calendar') === 'error') toast(`שגיאה בחיבור היומן: ${hash.get('msg') || ''}`, 'error');
   if (state.user) renderApp();
   // an already-running standalone window gets the share as a hash change
-  if (state.user && hash.get('shared-voice')) takeSharedAudio();
+  if (state.user && (hash.get('shared-voice') || hash.get('voice-note'))) takeSharedAudio();
 });
 
 registerServiceWorker();
