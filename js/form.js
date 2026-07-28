@@ -36,12 +36,21 @@ function el(tag, attrs = {}, ...kids) {
   document.body.style.setProperty('--f-text', c.text || '#eef7fa');
 
   const inputs = {};
+  const freeText = {};   // key → the "other" text box, when one is showing
+  const wrappers = {};   // key → the field's wrapper, for conditional fields
+  const onChange = [];   // re-evaluate conditional fields after any change
+
+  // English forms show English labels but still SUBMIT the Hebrew value, so the
+  // CRM keeps one canonical vocabulary (chips, filters and reports all match).
+  const optionLabel = (f, i, value) => (en && f.options_en && f.options_en[i]) || value;
+  const isOther = (f, value) => f.other_free_text && value === (f.options || []).slice(-1)[0];
+
   const fieldEl = (f) => {
     let input;
     if (f.type === 'select') {
       input = el('select', { name: f.key },
         el('option', { value: '' }, en ? '— choose —' : '— בחרו —'),
-        ...(f.options || []).map(o => el('option', { value: o }, o)));
+        ...(f.options || []).map((o, i) => el('option', { value: o }, optionLabel(f, i, o))));
     } else if (f.type === 'textarea') {
       input = el('textarea', { name: f.key, rows: 4 });
     } else {
@@ -50,19 +59,66 @@ function el(tag, attrs = {}, ...kids) {
     }
     if (f.required) input.required = true;
     inputs[f.key] = input;
-    const kids = [el('label', { for: f.key }, f.label, f.required ? el('span', { class: 'req' }, ' *') : '')];
+
+    const label = (en && f.label_en) || f.label;
+    const kids = [el('label', { for: f.key }, label, f.required ? el('span', { class: 'req' }, ' *') : '')];
     if (f.description) kids.push(el('div', { class: 'field-help' }, f.description));
     kids.push(input);
-    return kids;
+
+    // picking the last option ("אחר" / "Other") reveals a free-text box
+    if (f.type === 'select' && f.other_free_text) {
+      const other = el('input', {
+        type: 'text', class: 'other-input',
+        placeholder: en ? 'Please specify…' : 'פרטו…',
+      });
+      other.style.display = 'none';
+      freeText[f.key] = other;
+      input.addEventListener('change', () => {
+        const show = isOther(f, input.value);
+        other.style.display = show ? '' : 'none';
+        if (!show) other.value = '';
+        if (show) other.focus();
+      });
+      kids.push(other);
+    }
+
+    const wrap = el('div', { class: 'field-wrap' }, ...kids);
+    wrappers[f.key] = wrap;
+
+    // conditional visibility (e.g. "who recommended us?" only after picking
+    // "recommendation"). A hidden field is never required and never submitted.
+    if (f.show_when) {
+      const apply = () => {
+        const src = inputs[f.show_when.field];
+        const show = !!src && src.value === f.show_when.equals;
+        wrap.style.display = show ? '' : 'none';
+        if (!show) input.value = '';
+        input.required = show && !!f.required;
+      };
+      onChange.push(apply);
+    }
+    return wrap;
   };
 
   const formEl = el('form', {}, ...(form.fields || []).map(fieldEl),
     el('button', { type: 'submit' }, en ? 'Send' : 'שליחה 🎷'));
 
+  // wire conditional fields once every input exists, then set their initial state
+  formEl.addEventListener('change', () => onChange.forEach(fn => fn()));
+  onChange.forEach(fn => fn());
+
   formEl.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const payload = Object.fromEntries(Object.entries(inputs)
-      .map(([k, i]) => [k, i.value]).filter(([, v]) => v !== ''));
+    const payload = {};
+    for (const [k, i] of Object.entries(inputs)) {
+      // skip fields hidden by a condition — they are not part of this answer
+      if (wrappers[k] && wrappers[k].style.display === 'none') continue;
+      // "other" → send what they typed, so the real answer isn't lost as "אחר"
+      const typed = freeText[k];
+      const v = (typed && typed.style.display !== 'none' && typed.value.trim())
+        ? typed.value.trim() : i.value;
+      if (v !== '') payload[k] = v;
+    }
     try {
       const rsp = await fetch(`${API_BASE}/api/public/forms/${slug}/submit`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },

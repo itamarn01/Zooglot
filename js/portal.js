@@ -91,17 +91,32 @@ let contract = null;
 let t = STR.he;
 let dir = 'rtl';
 const dfmt = (d) => d ? new Date(d).toLocaleDateString(contract.language === 'en' ? 'en-GB' : 'he-IL') : '';
+// The date in the cyan header. English contracts keep the band's
+// "20-JUL-26" styling; Hebrew contracts show a Hebrew date, since an English
+// month abbreviation reads as a foreign body in an otherwise Hebrew document.
+// Always rendered on the Israel clock — the band's date, not the viewer's.
+const IL_TZ = 'Asia/Jerusalem';
 const bandDate = (d) => {
   const dt = d ? new Date(d) : new Date();
-  const mon = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][dt.getMonth()];
-  return `${dt.getDate()}-${mon}-${String(dt.getFullYear()).slice(2)}`;
+  if (contract?.language === 'en') {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: IL_TZ, day: 'numeric', month: 'short', year: '2-digit',
+    }).formatToParts(dt);
+    const get = (type) => parts.find(p => p.type === type)?.value || '';
+    return `${get('day')}-${get('month').toUpperCase()}-${get('year')}`;
+  }
+  return new Intl.DateTimeFormat('he-IL', {
+    timeZone: IL_TZ, day: 'numeric', month: 'long', year: 'numeric',
+  }).format(dt);
 };
 
 function headerBand() {
   return h('div', { class: 'prop-head' },
     h('div', { class: 'prop-head-tri' }),
     h('div', { class: 'prop-head-info' },
-      h('div', {}, bandDate(contract.created_at)),
+      // the block is forced LTR for the phone/email/site lines; a Hebrew date
+      // needs its own direction so it doesn't read backwards
+      h('div', { dir: contract.language === 'en' ? 'ltr' : 'rtl' }, bandDate(contract.created_at)),
       h('div', {}, '055-5081080'),
       h('div', { dir: 'ltr' }, 'KOLOTMUSIC@GMAIL.COM'),
       h('div', { dir: 'ltr' }, 'KOLOTBAND.CO.IL')),

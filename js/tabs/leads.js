@@ -5,6 +5,7 @@ import { get, post, patch, del, upload } from '../api.js';
 import { h, toast, modal, confirmModal, debounce, skeletonTable, withBusy } from '../ui.js';
 import { openImportWizard } from './import.js';
 import { formatPhone, sanitizePhone, phoneKey } from '../phone.js';
+import { toIsraelInputValue, israelInputValueToDate, formatIsrael } from '../time.js';
 
 const PAGE_SIZE = 100;
 const WIDTHS_KEY = 'zooglot_col_widths';
@@ -1080,7 +1081,8 @@ async function openUpdatesDrawer(lead, initialTab = 'updates') {
 
     if (!reminders.length) bodyEl.append(h('p', { class: 'muted' }, 'אין תזכורות לליד הזה.'));
     for (const r of reminders) {
-      const when = new Date(r.remind_at).toLocaleString('he-IL');
+      // always shown on the Israel clock, so the list matches when it really fires
+      const when = formatIsrael(r.remind_at);
       const statusLabel = { pending: '⏳ ממתינה', sent: '✅ נשלחה', failed: '❌ נכשלה', cancelled: 'בוטלה' }[r.status] || r.status;
       bodyEl.append(h('div', { class: `reminder-item ${r.status}` },
         h('div', { class: 'flex between' },
@@ -1126,12 +1128,19 @@ function openReminderModal(lead, onSaved) {
       value: t.id, selected: t.id === lead.owner_id,
     }, `${t.full_name || t.email}${t.phone ? '' : ' (ללא טלפון)'}`)));
 
-  // default: tomorrow at 09:00, formatted for datetime-local
-  const d = new Date(Date.now() + 24 * 3600 * 1000);
-  d.setHours(9, 0, 0, 0);
-  const pad = (n) => String(n).padStart(2, '0');
-  const local = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  const when = h('input', { type: 'datetime-local', value: local });
+  // Default: tomorrow 09:00 ISRAEL time. The picker is read as Israel wall clock
+  // regardless of the device's timezone, so a reminder set from a laptop on
+  // another zone (or a phone abroad) still fires when the band expects it.
+  const tomorrow = toIsraelInputValue(new Date(Date.now() + 24 * 3600 * 1000)).slice(0, 10);
+  const when = h('input', { type: 'datetime-local', value: `${tomorrow}T09:00` });
+  const whenHint = h('p', { class: 'muted', style: 'font-size:12px;margin:4px 0 0' });
+  const syncWhen = () => {
+    whenHint.textContent = when.value
+      ? `⏰ תישלח ב-${formatIsrael(israelInputValueToDate(when.value))} (שעון ישראל)`
+      : '';
+  };
+  when.addEventListener('input', syncWhen);
+  syncWhen();
   const message = h('textarea', { rows: 3, placeholder: `למשל: להתקשר ל${lead.contact_name || lead.name} בנוגע להצעת המחיר` });
 
   const warn = h('p', { class: 'muted' });
@@ -1149,7 +1158,7 @@ function openReminderModal(lead, onSaved) {
     h('div', { class: 'grid-2' },
       h('label', { class: 'field' }, h('span', {}, 'ערוץ שליחה'), channel),
       h('label', { class: 'field' }, h('span', {}, 'למי לשלוח (מטפל האירוע)'), recipient)),
-    h('label', { class: 'field' }, h('span', {}, 'מתי *'), when),
+    h('label', { class: 'field' }, h('span', {}, 'מתי * (שעון ישראל)'), when, whenHint),
     h('label', { class: 'field' }, h('span', {}, 'תוכן התזכורת'), message),
     warn), {
     actions: [
@@ -1159,7 +1168,7 @@ function openReminderModal(lead, onSaved) {
           try {
             await post(`/leads/${lead.id}/reminders`, {
               channel: channel.value,
-              remind_at: new Date(when.value).toISOString(),
+              remind_at: israelInputValueToDate(when.value).toISOString(),
               message: message.value,
               recipient_id: recipient.value,
             });

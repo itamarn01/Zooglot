@@ -27,9 +27,30 @@ export async function renderSettingsTab(view, state) {
   // ================= profile =================
   const nameInput = h('input', { type: 'text', value: state.user.full_name || '' });
   const phoneInput = h('input', { type: 'tel', dir: 'ltr', value: state.user.phone || '', placeholder: '05X-XXXXXXX' });
-  const curPassF = passwordField({ autocomplete: 'current-password' });
-  const newPassF = passwordField({ autocomplete: 'new-password', minlength: 8 });
-  const curPass = curPassF.input, newPass = newPassF.input;
+  // Password fields are built only when the user actually asks to change the
+  // password. Rendering them on every visit made Chrome autofill the saved
+  // password, so saving anything here looked like a sign-in and popped the
+  // "your password was found in a data breach" warning.
+  let curPass = null, newPass = null;
+  const passBox = h('div', {});
+  const passToggle = h('button', { class: 'btn sm', type: 'button' }, '🔑 שינוי סיסמה');
+  passToggle.addEventListener('click', () => {
+    if (curPass) { // collapse and forget what was typed
+      passBox.innerHTML = '';
+      curPass = newPass = null;
+      passToggle.textContent = '🔑 שינוי סיסמה';
+      return;
+    }
+    const curF = passwordField({ autocomplete: 'current-password' });
+    const newF = passwordField({ autocomplete: 'new-password', minlength: 8 });
+    curPass = curF.input; newPass = newF.input;
+    passBox.append(h('div', { class: 'grid-2' },
+      h('label', { class: 'field' }, h('span', {}, 'סיסמה נוכחית'), curF.wrap),
+      h('label', { class: 'field' }, h('span', {}, 'סיסמה חדשה'), newF.wrap)));
+    passToggle.textContent = '✕ ביטול שינוי סיסמה';
+    curPass.focus();
+  });
+
   const avatarFile = h('input', { type: 'file', accept: 'image/*' });
   const avatarPreview = h('div', {}, initialsAvatar(state.user.full_name, state.user.avatar_url));
   let avatarData;
@@ -47,18 +68,17 @@ export async function renderSettingsTab(view, state) {
     h('label', { class: 'field mt' }, h('span', {}, 'שם מלא'), nameInput),
     h('label', { class: 'field' },
       h('span', {}, 'טלפון (לתזכורות בוואטסאפ)'), phoneInput),
-    h('div', { class: 'grid-2' },
-      h('label', { class: 'field' }, h('span', {}, 'סיסמה נוכחית'), curPassF.wrap),
-      h('label', { class: 'field' }, h('span', {}, 'סיסמה חדשה (אופציונלי)'), newPassF.wrap)),
+    h('div', { class: 'mt' }, passToggle),
+    passBox,
     h('button', {
-      class: 'btn primary', onclick: withBusy(async () => {
+      class: 'btn primary mt', onclick: withBusy(async () => {
         try {
           const body = { full_name: nameInput.value, phone: phoneInput.value.trim() };
           if (avatarData) body.avatar_url = avatarData;
-          if (newPass.value) { body.new_password = newPass.value; body.current_password = curPass.value; }
+          if (newPass && newPass.value) { body.new_password = newPass.value; body.current_password = curPass.value; }
           const { user } = await patch('/settings/profile', body);
           Object.assign(state.user, user);
-          curPass.value = newPass.value = '';
+          if (curPass) passToggle.click(); // collapse + clear the fields
           toast('הפרופיל עודכן ✓', 'success');
         } catch (e) { toast(e.message, 'error'); }
       }),
@@ -438,6 +458,10 @@ function formBuilderSection(forms, bindableFields) {
           if (cb.checked) {
             chosen.set(bf.key, {
               key: bf.key, label: label.value, type: bf.type, options: bf.options,
+              // carried so the public form can render English labels, offer a
+              // free-text box for "other", and hide conditional fields
+              options_en: bf.options_en, label_en: bf.label_en,
+              other_free_text: bf.other_free_text, show_when: bf.show_when,
               required: req.checked, description: desc.value,
             });
           } else chosen.delete(bf.key);

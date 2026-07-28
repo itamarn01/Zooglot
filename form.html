@@ -25,12 +25,24 @@
     label .req { color: var(--f-primary, #87cedf); }
     .field-help { font-size: 12.5px; opacity: .65; margin: -2px 0 6px; line-height: 1.4; }
     input, select, textarea {
-      width: 100%; font-family: inherit; font-size: 15px; color: inherit;
+      width: 100%; max-width: 100%; min-width: 0;
+      font-family: inherit; font-size: 15px; color: inherit;
       background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18);
       border-radius: 10px; padding: 10px 12px;
     }
+    /* iOS gives date inputs an intrinsic width from their native control, so
+       they ignore width:100% and push the page wider than the screen. Dropping
+       the native appearance makes them size like every other field. */
+    input[type="date"] {
+      -webkit-appearance: none; appearance: none;
+      min-height: 44px; line-height: 1.2; display: block;
+    }
+    input[type="date"]::-webkit-date-and-time-value { text-align: start; margin: 0; }
+    input[type="date"]::-webkit-calendar-picker-indicator { margin-inline-start: auto; }
     input:focus, select:focus, textarea:focus { outline: none; border-color: var(--f-primary, #87cedf); }
     select option { color: #16232a; }
+    /* free-text box revealed by choosing "other" */
+    .other-input { margin-top: 8px; }
     button[type=submit] {
       width: 100%; margin-top: 20px; padding: 13px; font-family: inherit; font-size: 16px; font-weight: 700;
       background: var(--f-primary, #87cedf); color: #0b2830; border: none; border-radius: 12px; cursor: pointer;
