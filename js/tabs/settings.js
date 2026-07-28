@@ -142,12 +142,38 @@ export async function renderSettingsTab(view, state) {
     return box;
   }
 
+  // Instagram / Facebook DMs → leads. Everything here is configured on Meta's
+  // side; this card exists to hand over the two values Meta asks for and to
+  // report whether the page token has been supplied.
+  function instagramCard() {
+    const copyBox = (label, value) => h('div', { style: 'margin-bottom:8px' },
+      h('p', { class: 'muted', style: 'margin:0 0 3px;font-size:12.5px' }, label),
+      h('div', { class: 'code-box', style: 'cursor:pointer', onclick: () => {
+        navigator.clipboard?.writeText(value); toast('הועתק ✓', 'success');
+      } }, value));
+
+    return h('div', { class: 'wa-card' },
+      h('h4', {}, '📷 אינסטגרם / פייסבוק · פניות ישירות ללוח'),
+      h('p', {}, statusDot(integrations.instagram),
+        integrations.instagram
+          ? ' מחובר — הודעות ישירות ייהפכו ללידים'
+          : ' לא מחובר — נדרש META_PAGE_TOKEN בשרת'),
+      copyBox('Callback URL (להדביק ב-Meta):', integrations.instagram_webhook_url || ''),
+      copyBox('Verify Token:', integrations.instagram_verify_token || ''),
+      h('p', { class: 'muted', style: 'font-size:12.5px' },
+        'ב-Meta: Developers → האפליקציה → Webhooks → Instagram → Subscribe to messages, ואז הדביקו את שתי הכתובות שלמעלה.'));
+  }
+
   grid.append(h('div', { class: 'card' },
     h('h3', {}, iconBadge('🔌', 'cyan'), 'אינטגרציות'),
     h('p', {}, statusDot(!integrations.mock_db), ` בסיס נתונים: ${integrations.mock_db ? 'מצב Mock מקומי (הזן מפתחות Supabase ב-.env)' : 'Supabase מחובר'}`),
     h('p', {}, statusDot(integrations.resend), ` Resend (מיילים): ${integrations.resend ? 'פעיל' : 'לא מוגדר — מיילים מודפסים לקונסול'}`),
-    h('p', {}, statusDot(integrations.openai), ` OpenAI (ניתוח הקלטות): ${integrations.openai ? 'פעיל' : 'לא מוגדר — מצב דמו'}`),
+    h('p', {}, statusDot(integrations.voice_engine !== 'mock'),
+      ` ניתוח הקלטות קוליות: ${{ gemini: 'Gemini Flash ✨', openai: 'OpenAI', mock: 'לא מוגדר — מצב דמו' }[integrations.voice_engine] || 'לא מוגדר'}`),
+    h('p', {}, statusDot(integrations.clarity),
+      ` Clarity (הקלטות מסך בטפסים): ${integrations.clarity ? 'פעיל' : 'לא מוגדר — הוסיפו CLARITY_PROJECT_ID'}`),
     whatsappCard(),
+    instagramCard(),
     h('hr', { style: 'border-color:var(--line)' }),
     h('h4', {}, '📅 Google Calendar'),
     calStatus.connected
@@ -526,6 +552,8 @@ function formBuilderSection(forms, bindableFields) {
       h('option', { value: 'en', selected: f.language === 'en' }, 'English (LTR)'));
     const cPrimary = h('input', { type: 'color', value: f.colors?.primary || '#87cedf', style: 'width:52px;padding:2px' });
     const cBg = h('input', { type: 'color', value: f.colors?.bg || '#0e1b20', style: 'width:52px;padding:2px' });
+    const cText = h('input', { type: 'color', value: f.colors?.text || '#eef7fa', style: 'width:52px;padding:2px' });
+    const cBorder = h('input', { type: 'color', value: f.colors?.border || '#4a5a62', style: 'width:52px;padding:2px' });
     const logoFile = h('input', { type: 'file', accept: 'image/*' });
     let logoData = f.logo_url || '';
     logoFile.addEventListener('change', async () => {
@@ -553,12 +581,22 @@ function formBuilderSection(forms, bindableFields) {
       type: 'text', value: (f.step_titles || [])[n - 1] || '',
       placeholder: `כותרת שלב ${n} (אופציונלי)`,
     }));
+    // each step gets its own "continue" wording, so it can promise what's next
+    const stepBtnInputs = [1, 2, 3, 4].map((n) => h('input', {
+      type: 'text', value: (f.step_buttons || [])[n - 1] || '',
+      placeholder: `כפתור שלב ${n} — למשל: המשך לפרטי קשר ←`,
+    }));
+    const successText = h('textarea', {
+      rows: 2, placeholder: 'למשל: תודה! נחזור אליכם היום עם הצעת מחיר 🎷',
+    }, f.success_text || '');
 
     // step controls only matter for a stepped form — hide them otherwise so the
     // builder doesn't look more complicated than it is
     const stepWraps = [];
-    const stepTitlesBox = h('div', { class: 'grid-2' },
-      ...stepTitleInputs.map((inp, i) => h('label', { class: 'field' }, h('span', {}, `כותרת שלב ${i + 1}`), inp)));
+    const stepTitlesBox = h('div', {},
+      ...stepTitleInputs.map((inp, i) => h('div', { class: 'grid-2' },
+        h('label', { class: 'field' }, h('span', {}, `כותרת שלב ${i + 1}`), inp),
+        h('label', { class: 'field' }, h('span', {}, `כפתור שלב ${i + 1}`), stepBtnInputs[i]))));
     const nextLabelWrap = h('label', { class: 'field' }, h('span', {}, 'טקסט כפתור "המשך"'), nextLabel);
     function syncStepVisibility() {
       const on = formType.value === 'steps';
@@ -624,10 +662,16 @@ function formBuilderSection(forms, bindableFields) {
       const en = lang.value === 'en';
       const fields = [...chosen.values()];
       const previewInput = (fl) => {
-        const style = 'width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:inherit;font-family:inherit;font-size:14px';
+        const style = `width:100%;padding:11px 13px;border-radius:9px;border:1px solid ${cBorder.value};background:rgba(255,255,255,.06);color:inherit;font-family:inherit;font-size:15px`;
         if (fl.type === 'select') {
           // English forms preview English option labels (the stored value stays Hebrew)
           const opts = (en && fl.options_en) ? fl.options_en : (fl.options || []);
+          if (fl.badges) {
+            return h('div', { style: 'display:flex;flex-wrap:wrap;gap:7px' },
+              ...opts.map(o => h('span', {
+                style: `border:1px solid ${cBorder.value};border-radius:999px;padding:8px 15px;font-size:13.5px`,
+              }, o)));
+          }
           return h('select', { style, disabled: true },
             h('option', {}, en ? '— choose —' : '— בחרו —'), ...opts.map(o => h('option', {}, o)));
         }
@@ -635,7 +679,7 @@ function formBuilderSection(forms, bindableFields) {
         return h('input', { style, type: fl.type || 'text', disabled: true });
       };
       const body = h('div', {
-        style: `background:${cBg.value};color:#eef7fa;padding:26px clamp(16px,4vw,34px);border-radius:14px;direction:${en ? 'ltr' : 'rtl'};text-align:${en ? 'left' : 'right'};font-family:Assistant,Arial,sans-serif`,
+        style: `background:${cBg.value};color:${cText.value};padding:26px clamp(16px,4vw,34px);border-radius:14px;direction:${en ? 'ltr' : 'rtl'};text-align:${en ? 'left' : 'right'};font-family:Assistant,Arial,sans-serif`,
       },
         h('img', { src: logoData || '/assets/logo.svg', alt: 'logo', style: 'max-height:70px;display:block;margin:0 auto 12px' }),
         h('h2', { style: `text-align:center;color:${cPrimary.value};font-family:inherit` }, name.value.trim() || (en ? 'Form title' : 'כותרת הטופס')),
@@ -667,6 +711,8 @@ function formBuilderSection(forms, bindableFields) {
       h('div', { class: 'flex', style: 'flex-wrap:wrap' },
         h('label', { class: 'flex' }, h('span', { class: 'muted' }, 'צבע ראשי'), cPrimary),
         h('label', { class: 'flex' }, h('span', { class: 'muted' }, 'צבע רקע'), cBg),
+        h('label', { class: 'flex' }, h('span', { class: 'muted' }, 'צבע הכיתוב'), cText),
+        h('label', { class: 'flex' }, h('span', { class: 'muted' }, 'צבע קווי השדות'), cBorder),
         h('label', { class: 'flex' }, h('span', { class: 'muted' }, 'לוגו'), logoFile)),
       h('div', { class: 'ce-terms mt' },
         h('h5', {}, '🎯 המרה — מבנה וטקסטים'),
@@ -677,7 +723,8 @@ function formBuilderSection(forms, bindableFields) {
         h('div', { class: 'grid-2' },
           h('label', { class: 'field' }, h('span', {}, 'טקסט כפתור השליחה'), submitLabel),
           nextLabelWrap),
-        h('label', { class: 'field' }, h('span', {}, 'הערת פרטיות (מתחת לכפתור)'), privacyNote)),
+        h('label', { class: 'field' }, h('span', {}, 'הערת פרטיות (מתחת לכפתור)'), privacyNote),
+        h('label', { class: 'field' }, h('span', {}, 'טקסט אחרי שליחה'), successText)),
       h('div', { class: 'flex between mt' },
         h('h4', { style: 'margin:0' }, 'בחירת שדות (מתוך עמודות מעקב זוגות)'),
         h('button', { type: 'button', class: 'btn sm', onclick: () => openPreview() }, '👁️ תצוגה מקדימה')),
@@ -690,13 +737,18 @@ function formBuilderSection(forms, bindableFields) {
           const body = {
             name: name.value, intro_html: intro.value, language: lang.value,
             logo_url: logoData || null,
-            colors: { primary: cPrimary.value, bg: cBg.value, text: '#eef7fa' },
+            colors: {
+              primary: cPrimary.value, bg: cBg.value,
+              text: cText.value, border: cBorder.value,
+            },
             fields: [...chosen.values()],
             form_type: formType.value,
             submit_label: submitLabel.value.trim() || null,
             next_label: nextLabel.value.trim() || null,
             privacy_note: privacyNote.value.trim() || null,
             step_titles: stepTitleInputs.map(i => i.value.trim()),
+            step_buttons: stepBtnInputs.map(i => i.value.trim()),
+            success_text: successText.value.trim() || null,
           };
           const rsp = isNew ? await post('/forms', body) : await patch(`/forms/${f.id}`, body);
           close();

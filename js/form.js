@@ -83,6 +83,18 @@ const AUTOCOMPLETE = {
   document.body.style.setProperty('--f-primary', c.primary || '#87cedf');
   document.body.style.setProperty('--f-bg', c.bg || '#0e1b20');
   document.body.style.setProperty('--f-text', c.text || '#eef7fa');
+  document.body.style.setProperty('--f-border', c.border || 'rgba(255,255,255,.18)');
+
+  // Microsoft Clarity — free session recordings + heatmaps, so the band can
+  // watch where mobile visitors actually hesitate. Loaded only when a project id
+  // is configured, and only on the public form (never in the CRM).
+  if (form.clarity_project_id) {
+    const s = document.createElement('script');
+    s.async = true;
+    s.src = `https://www.clarity.ms/tag/${form.clarity_project_id}`;
+    window.clarity = window.clarity || function () { (window.clarity.q = window.clarity.q || []).push(arguments); };
+    document.head.appendChild(s);
+  }
 
   // register the view (non-blocking)
   track('view', {
@@ -133,7 +145,28 @@ const AUTOCOMPLETE = {
 
   const fieldEl = (f) => {
     let input;
-    if (f.type === 'select') {
+    if (f.type === 'select' && f.badges && (f.options || []).length) {
+      // Badges instead of a dropdown: one tap rather than open-scroll-pick-close.
+      // A hidden <select> still holds the value, so validation, conditional
+      // fields and the submit payload all work unchanged.
+      input = el('select', { name: f.key, class: 'badge-value' },
+        el('option', { value: '' }, T.choose),
+        ...(f.options || []).map((o, i) => el('option', { value: o }, optionLabel(f, i, o))));
+      input.style.display = 'none';
+      const group = el('div', { class: 'badge-group', role: 'radiogroup' });
+      (f.options || []).forEach((o, i) => {
+        const b = el('button', { type: 'button', class: 'badge-opt' }, optionLabel(f, i, o));
+        b.addEventListener('click', () => {
+          const already = input.value === o;
+          input.value = already ? '' : o;            // tapping again clears it
+          group.querySelectorAll('.badge-opt').forEach(x => x.classList.remove('on'));
+          if (!already) b.classList.add('on');
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        group.append(b);
+      });
+      input._badgeGroup = group;
+    } else if (f.type === 'select') {
       input = el('select', { name: f.key },
         el('option', { value: '' }, T.choose),
         ...(f.options || []).map((o, i) => el('option', { value: o }, optionLabel(f, i, o))));
@@ -155,6 +188,7 @@ const AUTOCOMPLETE = {
     const kids = [el('label', { for: f.key }, label, f.required ? el('span', { class: 'req' }, ' *') : '')];
     if (f.description) kids.push(el('div', { class: 'field-help' }, f.description));
     kids.push(input);
+    if (input._badgeGroup) kids.push(input._badgeGroup);
 
     if (f.type === 'select' && f.other_free_text) {
       const other = el('input', { type: 'text', class: 'other-input', placeholder: T.specify });
@@ -222,6 +256,8 @@ const AUTOCOMPLETE = {
     if (stepped) {
       progressBar.style.width = `${Math.round((i + 1) / panels.length * 100)}%`;
       progressText.textContent = `${T.step} ${i + 1} ${T.of} ${panels.length}`;
+      // each step can promise what the next one holds ("continue to your quote →")
+      nextBtn.textContent = (form.step_buttons || [])[i] || form.next_label || T.next;
     }
     // moving between steps scrolls the new one into view — on a phone the fields
     // would otherwise stay below the fold
