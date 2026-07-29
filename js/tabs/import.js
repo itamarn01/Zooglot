@@ -195,13 +195,12 @@ export async function openImportWizard(onDone, pipeline = 'open') {
 
     setFooter(
       btn('חזרה', { onclick: () => { state.step = 'map'; drawSteps(); renderMap(); } }),
-      importBtn(async () => {
-        const rsp = await post('/import/leads', {
-          rows: state.rows, mapping: state.mapping,
+      importBtn(async (onProgress) => {
+        state.result = await runChunked('/import/leads', (rows) => ({
+          rows, mapping: state.mapping,
           match_strategy: state.matchStrategy, match_field: state.matchField,
           default_sale_status: state.saleStatus,
-        });
-        state.result = rsp;
+        }), onProgress);
       }));
   }
 
@@ -247,28 +246,73 @@ export async function openImportWizard(onDone, pipeline = 'open') {
 
     setFooter(
       btn('חזרה', { onclick: () => { state.step = 'upload'; drawSteps(); renderUpload(); } }),
-      importBtn(async () => {
+      importBtn(async (onProgress) => {
         if (!state.umap.match || !state.umap.content) { toast('יש לבחור עמודת זיהוי ותוכן', 'error'); throw new Error('mapping'); }
-        const rsp = await post('/import/updates', {
-          rows: state.rows,
+        state.result = await runChunked('/import/updates', (rows) => ({
+          rows,
           mapping: { match: state.umap.match, content: state.umap.content, author: state.umap.author || undefined, date: state.umap.date || undefined },
           match_field: state.umap.matchField,
-        });
-        state.result = rsp;
+        }), onProgress);
       }));
   }
 
-  // shared "run import" button with spinner + move to done step
+  // A 5,000-row file sent as one request spends minutes on the server and is
+  // killed by the proxy long before it finishes — which looks exactly like the
+  // app hanging, and invites a second import of the same file. Sending it in
+  // chunks keeps every request short and makes real progress reportable.
+  const CHUNK = 300;
+
+  async function runChunked(path, makeBody, onProgress) {
+    const rows = state.rows;
+    const totals = {}; const errors = []; const missing = new Set();
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const rsp = await post(path, makeBody(rows.slice(i, i + CHUNK)));
+      for (const [k, v] of Object.entries(rsp)) {
+        if (typeof v === 'number') totals[k] = (totals[k] || 0) + v;
+      }
+      // the server numbers rows within its own chunk — shift them back to the
+      // row number the user sees in their spreadsheet
+      for (const e of (rsp.errors || [])) if (errors.length < 40) errors.push({ ...e, row: e.row + i });
+      for (const m of (rsp.missing || [])) missing.add(m);
+      onProgress(Math.min(i + CHUNK, rows.length), rows.length);
+    }
+    return { ...totals, errors, missing: [...missing].slice(0, 20) };
+  }
+
+  // shared "run import" button with a progress bar + move to done step
   function importBtn(run) {
+    const fill = h('div', { class: 'imp-fill' });
+    const label = h('span', { class: 'imp-label' }, '');
+    const progress = h('div', { class: 'imp-progress', style: 'display:none' },
+      h('div', { class: 'imp-track' }, fill), label);
     const b = h('button', { class: 'btn primary' }, '🚀 התחל ייבוא');
+
+    const onProgress = (done, total) => {
+      progress.style.display = '';
+      const pct = total ? Math.round((done / total) * 100) : 100;
+      fill.style.width = `${pct}%`;
+      label.textContent = `${pct}% · ${done.toLocaleString('he-IL')} מתוך ${total.toLocaleString('he-IL')} שורות`;
+    };
+
     b.addEventListener('click', async () => {
       if (b.classList.contains('loading')) return;
       b.classList.add('loading');
-      try { await run(); state.step = 'done'; drawSteps(); renderDone(); }
-      catch (e) { if (e.message !== 'mapping') toast(e.message, 'error'); }
-      finally { b.classList.remove('loading'); }
+      // a half-finished import must not be lost to a stray click on the backdrop
+      const guard = (e) => { e.stopPropagation(); };
+      backdrop.addEventListener('click', guard, true);
+      try {
+        if (state.rows.length > CHUNK) onProgress(0, state.rows.length);
+        await run(onProgress);
+        state.step = 'done'; drawSteps(); renderDone();
+      } catch (e) {
+        if (e.message !== 'mapping') toast(e.message, 'error');
+        progress.style.display = 'none';
+      } finally {
+        b.classList.remove('loading');
+        backdrop.removeEventListener('click', guard, true);
+      }
     });
-    return b;
+    return h('div', { class: 'imp-run' }, b, progress);
   }
 
   // ---- done ----

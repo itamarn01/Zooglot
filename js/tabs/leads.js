@@ -7,7 +7,9 @@ import { openImportWizard } from './import.js';
 import { formatPhone, sanitizePhone, phoneKey } from '../phone.js';
 import { toIsraelInputValue, israelInputValueToDate, formatIsrael } from '../time.js';
 
-const PAGE_SIZE = 100;
+// Rows revealed per scroll step. Appending is now O(page) rather than O(total),
+// so a larger page means fewer pauses at the same cost per pause.
+const PAGE_SIZE = 200;
 const WIDTHS_KEY = 'zooglot_col_widths';
 const TEXTSIZE_KEY = 'zooglot_board_textsize';
 
@@ -36,6 +38,9 @@ const NEXT_ACTIONS = ['עוד פרטים', 'לקבוע פגישה', 'לשלוח 
 const SOURCES = { manual: 'ידני', form: 'טופס', webhook: 'אתר', whatsapp: 'וואטסאפ', voice: 'הקלטה', import: 'ייבוא' };
 
 let ctx = null; // { view, state, leads, competitors, pipeline, search, sort, filters, colWidths }
+// live handle on the rendered board, so more rows can be appended without
+// rebuilding what is already on screen: { cols, tables: [[table, part]], sync }
+let boardRef = null;
 
 const loadWidths = () => { try { return JSON.parse(localStorage.getItem(WIDTHS_KEY)) || {}; } catch { return {}; } };
 const saveWidths = debounce((w) => localStorage.setItem(WIDTHS_KEY, JSON.stringify(w)), 300);
@@ -67,6 +72,9 @@ async function reload(redraw = true) {
     get('/leads/meta/duplicate-dismissals').catch(() => ({ dismissals: [] })),
   ]);
   ctx.leads = leads;
+  // id → lead, so delegated row handlers resolve a row without scanning
+  // thousands of records on every press
+  ctx.byId = new Map(leads.map(l => [l.id, l]));
   ctx.competitors = competitors;
   ctx.dismissals = dismissed.dismissals || [];
   if (redraw) draw();
@@ -234,6 +242,7 @@ function draw() {
       // the wizard defaults to the pipeline currently on screen, so a WON export
       // lands in WIN and a LOST export in LOST without extra steps
       h('button', { class: 'btn sm', onclick: () => openImportWizard(() => reload(), ctx.pipeline) }, '⬆️ ייבוא מאקסל'),
+      purgeBtn(counts),
       h('button', { class: 'btn sm primary', onclick: openNewLead }, '+ ליד חדש')),
   );
 
@@ -246,6 +255,7 @@ function draw() {
   }
 
   const rows = visibleLeads();
+  ctx.rows = rows;                       // reused by appendMore, which must not re-sort
   const shown = rows.slice(0, ctx.limit);
   host.append(toolbar);
 
@@ -256,26 +266,121 @@ function draw() {
   if (dupBar) host.append(dupBar);
 
   if (!rows.length) {
+    boardRef = null;
     host.append(h('div', { class: 'empty-state' }, h('div', { class: 'big' }, '🎷'), h('p', {}, 'אין לידים בתצוגה הזו')));
     return;
   }
 
   host.append(buildBoard(shown));
+  mountSentinel(host);
+}
 
-  // infinite scroll: reveal 100 more rows as the sentinel comes into view
-  if (rows.length > shown.length) {
-    const remaining = rows.length - shown.length;
-    const sentinel = h('div', {
-      class: 'muted', style: 'text-align:center;padding:16px',
-    }, `מציג ${shown.length} מתוך ${rows.length} — גללו לטעינת ${Math.min(PAGE_SIZE, remaining)} נוספים…`);
-    host.append(sentinel);
-    const io = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting) { io.disconnect(); ctx.limit += PAGE_SIZE; draw(); }
-    }, { rootMargin: '400px' });
-    io.observe(sentinel);
-  } else if (rows.length > PAGE_SIZE) {
-    host.append(h('div', { class: 'muted', style: 'text-align:center;padding:12px' }, `סה"כ ${rows.length} לידים`));
+// ---------------- incremental paging ----------------
+// Growing the list used to call draw(), which threw away the whole board and
+// rebuilt every row from scratch — so revealing rows 3000-3100 rebuilt 3000
+// rows, and on phones re-measured every one of them. The cost grew with each
+// scroll, which is exactly why fast scrolling froze. Now only the new rows are
+// built and appended; everything already on screen is left untouched.
+function mountSentinel(host) {
+  ctx.io?.disconnect();
+  ctx.sentinel?.remove();
+  ctx.sentinel = null;
+
+  const rows = ctx.rows || [];
+  const shownCount = Math.min(ctx.limit, rows.length);
+  if (rows.length <= shownCount) {
+    if (rows.length > PAGE_SIZE) {
+      ctx.sentinel = h('div', { class: 'muted board-foot' }, `סה"כ ${rows.length.toLocaleString('he-IL')} לידים`);
+      host.append(ctx.sentinel);
+    }
+    return;
   }
+
+  ctx.sentinel = h('div', { class: 'muted board-foot' },
+    `מציג ${shownCount.toLocaleString('he-IL')} מתוך ${rows.length.toLocaleString('he-IL')} — גללו להמשך…`);
+  host.append(ctx.sentinel);
+
+  // A generous margin means the next page is already being built well before it
+  // is scrolled into view, instead of the user hitting a wall and waiting.
+  ctx.io = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) appendMore();
+  }, { rootMargin: '1500px' });
+  ctx.io.observe(ctx.sentinel);
+}
+
+function appendMore() {
+  const rows = ctx.rows || [];
+  const from = ctx.limit;
+  if (from >= rows.length) return;
+  const slice = rows.slice(from, from + PAGE_SIZE);
+  ctx.limit = from + slice.length;
+
+  if (boardRef) appendRows(slice, from);
+  else return draw();
+
+  const host = ctx.view.querySelector('#leads-host');
+  if (host) mountSentinel(host);
+}
+
+function appendRows(newRows, fromIndex) {
+  for (const [table, part] of boardRef.tables) {
+    const frag = document.createDocumentFragment();
+    for (const lead of newRows) frag.append(buildRow(lead, boardRef.cols, part));
+    table.tBodies[0].append(frag);
+  }
+  // measure only the rows just added — re-measuring the whole board was the
+  // single most expensive thing on the page
+  if (boardRef.sync) requestAnimationFrame(() => boardRef.sync(fromIndex));
+}
+
+// Emptying a pipeline is the one irreversible action on this screen, so it is
+// gated three ways: admins only, the exact word must be typed, and the count the
+// user is looking at is sent to the server, which refuses if reality differs.
+function purgeBtn(counts) {
+  if (ctx?.state?.user?.role !== 'admin') return null;
+  const scope = ctx.pipeline === 'all' ? 'all' : ctx.pipeline;
+  const n = scope === 'all' ? (counts.open + counts.win + counts.lost) : counts[scope];
+  if (!n) return null;
+  const NAMES = { open: 'הצינור הראשי', win: 'WIN', lost: 'LOST', all: 'כל מעקב זוגות' };
+
+  return h('button', {
+    class: 'btn sm danger', title: `מחיקת כל הרשומות ב${NAMES[scope]}`,
+    onclick: () => openPurgeModal(scope, n, NAMES[scope]),
+  }, `🗑️ ריקון ${scope === 'all' ? 'הכל' : NAMES[scope]}`);
+}
+
+function openPurgeModal(scope, count, label) {
+  const WORD = 'מחק';
+  const confirmInput = h('input', { type: 'text', placeholder: WORD, autocomplete: 'off' });
+  const goBtn = h('button', { class: 'btn danger', disabled: true }, `מחיקת ${count.toLocaleString('he-IL')} רשומות`);
+  confirmInput.addEventListener('input', () => { goBtn.disabled = confirmInput.value.trim() !== WORD; });
+
+  const m = modal(`🗑️ ריקון ${label}`, h('div', {},
+    h('p', { style: 'color:var(--danger);font-weight:700;font-size:16px' },
+      `עומדות להימחק ${count.toLocaleString('he-IL')} רשומות מ${label}.`),
+    h('p', {}, 'יימחקו גם כל העדכונים, אנשי הקשר, התזכורות, החוזים והודעות הוואטסאפ המשויכים אליהן.'),
+    h('p', { style: 'font-weight:700' }, '⚠️ הפעולה אינה הפיכה ואין ביטול.'),
+    h('p', { class: 'muted' }, 'מומלץ לייצא לאקסל לפני המחיקה — כפתור "⬇️ ייצוא לאקסל" בסרגל.'),
+    h('label', { class: 'field mt' },
+      h('span', {}, `להמשך, הקלידו ${WORD}`), confirmInput),
+    h('div', { class: 'modal-actions' }, goBtn)));
+
+  goBtn.addEventListener('click', async () => {
+    if (goBtn.classList.contains('loading')) return;
+    goBtn.classList.add('loading');
+    try {
+      const r = await post('/leads/purge', { sale_status: scope, confirm_count: count });
+      toast(`נמחקו ${r.deleted.toLocaleString('he-IL')} רשומות ✓`, 'success');
+      m.close();
+      reload();
+    } catch (e) {
+      // the server refuses on a count mismatch — say so rather than retrying
+      toast(e.message, 'error');
+      goBtn.classList.remove('loading');
+    }
+  });
+  requestAnimationFrame(() => confirmInput.focus());
+  return m;
 }
 
 function pipeBtn(status, label) {
@@ -319,7 +424,37 @@ function selectionBar() {
     mergeBtn,
     h('button', { class: 'btn sm', onclick: withBusy(bulkDuplicate) }, '📄 שכפול'),
     h('button', { class: 'btn sm danger', onclick: withBusy(bulkDelete) }, '🗑️ מחיקה'),
-    h('button', { class: 'btn sm', onclick: () => { ctx.selected.clear(); draw(); } }, '✕ ביטול בחירה'));
+    h('button', {
+      class: 'btn sm', onclick: () => {
+        for (const id of ctx.selected) setRowSelected(id, false);
+        ctx.selected.clear();
+        for (const [t] of (boardRef?.tables || [])) {
+          const cb = t.tHead?.querySelector('input[type="checkbox"]');
+          if (cb) cb.checked = false;
+        }
+        for (const cb of document.querySelectorAll('.board tbody input[type="checkbox"]')) cb.checked = false;
+        refreshSelectionBar();
+      },
+    }, '✕ ביטול בחירה'));
+}
+
+// Selection state lives on the row's class and on the bar — both can be updated
+// in place. Rebuilding the board for a checkbox is what made ticking rows feel
+// heavy once the list was long.
+function setRowSelected(id, on) {
+  for (const tr of document.querySelectorAll(`tr[data-id="${id}"]`)) {
+    tr.classList.toggle('row-selected', on);
+  }
+}
+
+function refreshSelectionBar() {
+  const host = ctx.view?.querySelector('#leads-host');
+  if (!host) return;
+  const existing = host.querySelector('.selection-bar');
+  const next = selectionBar();
+  if (existing && next) existing.replaceWith(next);
+  else if (existing) existing.remove();
+  else if (next) host.querySelector('.board-toolbar')?.after(next);
 }
 
 async function bulkDelete() {
@@ -410,7 +545,9 @@ const PHONE_COL_SCALE = () => (isPhone() ? TEXT_SIZE_SCALE[textSize] : 1);
 function buildBoard(rows) {
   const cols = columns();
   if (!isPhone()) {
-    return h('div', { class: 'table-wrap' }, buildTable(rows, cols, 'all'));
+    const table = buildTable(rows, cols, 'all');
+    boardRef = { cols, tables: [[table, 'all']], sync: null };
+    return h('div', { class: 'table-wrap' }, table);
   }
   const frozen = buildTable(rows, cols, 'frozen');
   const rest = buildTable(rows, cols, 'rest');
@@ -422,12 +559,19 @@ function buildBoard(rows) {
   // MINIMUM in table layout, so any row whose content is a pixel taller in one
   // pane pushes that pane out of step and the rows visibly drift apart. Measure
   // both panes and pin each row pair to the taller of the two.
-  const syncRows = () => {
+  //
+  // `from` limits the work to rows appended since the last pass. Rows already
+  // pinned cannot change height, so re-measuring them costs a full-table reflow
+  // and buys nothing — at a few thousand rows that reflow is the freeze.
+  const syncRows = (from = 0) => {
     const pairs = [];
-    const head = [frozen.tHead?.rows[0], rest.tHead?.rows[0]];
-    if (head[0] && head[1]) pairs.push(head);
+    if (from === 0) {
+      const head = [frozen.tHead?.rows[0], rest.tHead?.rows[0]];
+      if (head[0] && head[1]) pairs.push(head);
+    }
     const a = frozen.tBodies[0]?.rows || [], b = rest.tBodies[0]?.rows || [];
-    for (let i = 0; i < Math.min(a.length, b.length); i++) pairs.push([a[i], b[i]]);
+    for (let i = from; i < Math.min(a.length, b.length); i++) pairs.push([a[i], b[i]]);
+    if (!pairs.length) return;
 
     // clear every override first, then measure: reading heights that are still
     // pinned from the previous pass would just re-apply the old (stale) values
@@ -439,9 +583,10 @@ function buildBoard(rows) {
       y.style.height = `${heights[i]}px`;
     });
   };
-  requestAnimationFrame(syncRows);
+  boardRef = { cols, tables: [[frozen, 'frozen'], [rest, 'rest']], sync: syncRows };
+  requestAnimationFrame(() => syncRows(0));
   // fonts land after first paint and change text metrics → re-sync once more
-  document.fonts?.ready?.then(() => requestAnimationFrame(syncRows));
+  document.fonts?.ready?.then(() => requestAnimationFrame(() => syncRows(0)));
   attachPinchZoom(wrap);
   return wrap;
 }
@@ -497,9 +642,17 @@ function buildTable(rows, cols, part) {
   const selectAllCb = h('input', {
     type: 'checkbox', checked: allSelected,
     onclick: (e) => {
-      if (e.target.checked) rows.forEach(l => ctx.selected.add(l.id));
-      else rows.forEach(l => ctx.selected.delete(l.id));
-      draw();
+      const on = e.target.checked;
+      for (const l of rows) {
+        on ? ctx.selected.add(l.id) : ctx.selected.delete(l.id);
+        setRowSelected(l.id, on);
+      }
+      // keep the twin pane's header box in step without a redraw
+      for (const [t] of (boardRef?.tables || [])) {
+        const cb = t.tHead?.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = on;
+      }
+      refreshSelectionBar();
     },
   });
 
@@ -528,7 +681,9 @@ function buildTable(rows, cols, part) {
     ...(hasActions ? [h('th', {}, 'פעולות')] : [])));
 
   const tbody = h('tbody', {}, ...rows.map(lead => buildRow(lead, cols, part)));
-  return h('table', { class: `board grid pane-${part}` }, colGroup, thead, tbody);
+  const table = h('table', { class: `board grid pane-${part}` }, colGroup, thead, tbody);
+  attachLongPress(table);
+  return table;
 }
 
 // drag the edge of a header to resize that column; width persists in localStorage
@@ -578,7 +733,10 @@ function buildRow(lead, cols, part = 'all') {
     onclick: (e) => {
       e.stopPropagation();
       e.target.checked ? ctx.selected.add(lead.id) : ctx.selected.delete(lead.id);
-      draw();
+      // ticking a box used to redraw the entire board; only the row's own class
+      // and the selection bar actually change
+      setRowSelected(lead.id, e.target.checked);
+      refreshSelectionBar();
     },
   });
   const dataCols = part === 'frozen' ? cols.slice(0, 1) : part === 'rest' ? cols.slice(1) : cols;
@@ -603,7 +761,6 @@ function buildRow(lead, cols, part = 'all') {
           reload();
         },
       }, '🗑️')))]));
-  attachLongPress(tr, lead);
   return tr;
 }
 
@@ -620,19 +777,26 @@ function buildNameCell(lead, col, part = 'all') {
   return td;
 }
 
-// long-press (or long mouse-hold) on a row opens the editable item card —
-// handy on phones where the wide board needs horizontal scrolling to see everything
-function attachLongPress(tr, lead) {
+// Long-press (or long mouse-hold) on a row opens the editable item card — handy
+// on phones where the wide board needs horizontal scrolling to see everything.
+//
+// Bound once per table, not once per row: at a few thousand rows across two
+// panes the per-row version meant tens of thousands of listeners, all of which
+// had to be created while scrolling and torn down on every redraw.
+function attachLongPress(table) {
   let timer = null;
-  const start = (e) => {
-    if (e.target.closest('input, select, textarea, button, a, .col-resize')) return;
-    timer = setTimeout(() => { timer = null; openUpdatesDrawer(lead, 'card'); }, 550);
-  };
   const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
-  tr.addEventListener('pointerdown', start);
-  tr.addEventListener('pointerup', cancel);
-  tr.addEventListener('pointerleave', cancel);
-  tr.addEventListener('pointercancel', cancel);
+  table.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('input, select, textarea, button, a, .col-resize')) return;
+    const tr = e.target.closest('tr[data-id]');
+    if (!tr) return;
+    const lead = ctx.byId?.get(tr.dataset.id);
+    if (!lead) return;
+    timer = setTimeout(() => { timer = null; openUpdatesDrawer(lead, 'card'); }, 550);
+  });
+  table.addEventListener('pointerup', cancel);
+  table.addEventListener('pointerleave', cancel);
+  table.addEventListener('pointercancel', cancel);
 }
 
 // phone cell: shows a country flag + dash-formatted number, but switches to
