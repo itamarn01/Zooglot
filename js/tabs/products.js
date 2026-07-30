@@ -1,15 +1,20 @@
 // Tab 2 — מוצרים: full CRUD with inline editing and default pricing.
 import { get, post, patch, del } from '../api.js';
 import { h, toast, modal, confirmModal, fmtMoney, skeletonTable } from '../ui.js';
+import { swr, peek, put, rowsSig } from '../store.js';
+
+const CACHE_KEY = 'products';
 
 export async function renderProductsTab(view) {
   const host = h('div', {});
   view.append(host);
-  host.append(skeletonTable(6));
+  const skel = peek(CACHE_KEY) ? null : skeletonTable(6);
+  if (skel) host.append(skel);
   let products = [];
 
   async function reload() {
     ({ products } = await get('/products'));
+    put(CACHE_KEY, products, rowsSig(products));
     draw();
   }
 
@@ -83,5 +88,8 @@ export async function renderProductsTab(view) {
     });
   }
 
-  await reload();
+  await swr(CACHE_KEY, () => get('/products').then(r => r.products), (data) => {
+    products = data; draw();
+  });
+  skel?.remove();
 }

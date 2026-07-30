@@ -11,6 +11,7 @@
 // can be saved as a reusable template.
 import { get, post, patch, del } from '../api.js';
 import { h, toast, modal, confirmModal, fmtMoney, skeletonTable, withBusy, comboBox, debounce } from '../ui.js';
+import { swr, peek, put, rowsSig } from '../store.js';
 import { pickProducts } from '../product-picker.js';
 
 const STATUS_LABELS = {
@@ -85,17 +86,33 @@ function builtinSections(pkg) {
   return secs;
 }
 
+const CACHE_KEY = 'contracts-tab';
+
 export async function renderContractsTab(view) {
   const host = h('div', {});
   view.append(host);
-  host.append(skeletonTable(6));
+  // this tab pulls six endpoints including the whole board, so re-entering it
+  // was the slowest navigation in the app — paint from the last copy instead
+  const skel = peek(CACHE_KEY) ? null : skeletonTable(6);
+  if (skel) host.append(skel);
   let contracts = [], leads = [], packages = [], signatures = [], templates = [], products = [];
 
+  const fetchAll = () => Promise.all([
+    get('/contracts'), get('/leads'), get('/packages'), get('/settings/signatures'),
+    get('/contracts/templates'), get('/products'),
+  ]).then(([c, l, p, s, t, pr]) => ({
+    contracts: c.contracts, leads: l.leads, packages: p.packages,
+    signatures: s.signatures, templates: t.templates, products: pr.products,
+  }));
+
+  const apply = (d) => {
+    ({ contracts, leads, packages, signatures, templates, products } = d);
+  };
+
   async function reload() {
-    [{ contracts }, { leads }, { packages }, { signatures }, { templates }, { products }] = await Promise.all([
-      get('/contracts'), get('/leads'), get('/packages'), get('/settings/signatures'),
-      get('/contracts/templates'), get('/products'),
-    ]);
+    const data = await fetchAll();
+    put(CACHE_KEY, data, rowsSig(data.contracts));
+    apply(data);
     draw();
   }
 
@@ -826,5 +843,6 @@ export async function renderContractsTab(view) {
     drawInject();
   }
 
-  await reload();
+  await swr(CACHE_KEY, fetchAll, (data) => { apply(data); draw(); }, d => rowsSig(d?.contracts));
+  skel?.remove();
 }

@@ -3,16 +3,25 @@
 // optional items.
 import { get, post, patch, del } from '../api.js';
 import { h, toast, modal, confirmModal, fmtMoney, skeletonCards, withBusy } from '../ui.js';
+import { swr, peek, put, rowsSig } from '../store.js';
 import { pickProducts } from '../product-picker.js';
+
+const CACHE_KEY = 'packages-tab';
 
 export async function renderPackagesTab(view) {
   const host = h('div', {});
   view.append(host);
-  host.append(skeletonCards(3));
+  const skel = peek(CACHE_KEY) ? null : skeletonCards(3);
+  if (skel) host.append(skel);
   let packages = [], products = [];
 
+  const fetchAll = () => Promise.all([get('/packages'), get('/products')])
+    .then(([p, pr]) => ({ packages: p.packages, products: pr.products }));
+
   async function reload() {
-    [{ packages }, { products }] = await Promise.all([get('/packages'), get('/products')]);
+    const data = await fetchAll();
+    put(CACHE_KEY, data, rowsSig(data.packages));
+    ({ packages, products } = data);
     draw();
   }
 
@@ -156,5 +165,8 @@ export async function renderPackagesTab(view) {
     });
   }
 
-  await reload();
+  await swr(CACHE_KEY, fetchAll, (data) => {
+    ({ packages, products } = data); draw();
+  }, d => rowsSig(d?.packages));
+  skel?.remove();
 }

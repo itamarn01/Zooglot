@@ -2,6 +2,8 @@
 import { get, getToken, setToken } from './api.js';
 import { h, initialsAvatar, toast, showSplash, ICONS } from './ui.js';
 import { renderAuth, verifyBanner } from './auth.js';
+import { startLive } from './live.js';
+import { dropAll } from './store.js';
 import { renderLeadsTab, openVoiceModal } from './tabs/leads.js';
 import { renderProductsTab } from './tabs/products.js';
 import { renderPackagesTab } from './tabs/packages.js';
@@ -91,7 +93,9 @@ async function renderApp() {
 async function enterApp(user) {
   state.user = user;
   showSplash(`שלום, ${(user.full_name || '').split(' ')[0] || 'ברוך הבא'} 👋`);
+  dropAll(); // a fresh login must never paint the previous account's data
   await loadTeam();
+  startLive();
   renderApp();
   // a note shared while logged out waits in the cache until login finishes
   takeSharedAudio();
@@ -108,6 +112,7 @@ async function boot() {
     const { user } = await get('/auth/me');
     state.user = user;
     await loadTeam();
+    startLive();
     renderApp();
     takeSharedAudio();
   } catch {

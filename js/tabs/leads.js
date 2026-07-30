@@ -6,6 +6,8 @@ import { h, toast, modal, confirmModal, debounce, skeletonTable, withBusy } from
 import { openImportWizard } from './import.js';
 import { formatPhone, sanitizePhone, phoneKey } from '../phone.js';
 import { toIsraelInputValue, israelInputValueToDate, formatIsrael } from '../time.js';
+import { swr, peek, put, rowsSig } from '../store.js';
+import { onLive } from '../live.js';
 
 // Rows revealed per scroll step. Appending is now O(page) rather than O(total),
 // so a larger page means fewer pauses at the same cost per pause.
@@ -45,39 +47,164 @@ let boardRef = null;
 const loadWidths = () => { try { return JSON.parse(localStorage.getItem(WIDTHS_KEY)) || {}; } catch { return {}; } };
 const saveWidths = debounce((w) => localStorage.setItem(WIDTHS_KEY, JSON.stringify(w)), 300);
 
+// Which pipeline, search and sort the user was on. Kept outside ctx so leaving
+// for חוזים and coming back lands where they were, instead of resetting to the
+// main pipeline every time.
+let boardView = {
+  pipeline: 'open', search: '', sort: { col: 'event_date', asc: true }, filters: {},
+};
+const CACHE_KEY = 'leads';
+
 export async function renderLeadsTab(view, state) {
   ctx = {
     view, state, leads: [], competitors: [],
-    pipeline: 'open', search: '', sort: { col: 'event_date', asc: true }, filters: {},
+    ...boardView,
     limit: PAGE_SIZE,
     colWidths: loadWidths(),
     selected: new Set(),
     dismissals: [],   // phone numbers confirmed as "not a duplicate"
   };
-  const skel = h('div', {}, skeletonTable(10));
-  view.append(skel);
-  await reload(false);
-  skel.remove();
-  draw();
+
+  // Skeletons only when there is genuinely nothing to show. Re-entering the tab
+  // used to re-download the whole board and stare at placeholders for data the
+  // browser already had.
+  const skel = peek(CACHE_KEY) ? null : h('div', {}, skeletonTable(10));
+  if (skel) view.append(skel);
+
+  await swr(CACHE_KEY, fetchBoard, (data, fromCache) => {
+    applyBoard(data);
+    if (fromCache) draw();
+    else redrawKeepingPlace();
+  }, d => rowsSig(d?.leads));
+
+  skel?.remove();
+  subscribeLive();
 }
 
-// reset pagination whenever the visible set changes (pipeline/search/filter/sort)
-function resetPaging() { ctx.limit = PAGE_SIZE; ctx.selected.clear(); }
+const fetchBoard = () => Promise.all([
+  get('/leads'), get('/leads/meta/competitors'),
+  // approvals are a nice-to-have: if the table isn't migrated yet the board
+  // must still load, just without the "not a duplicate" memory
+  get('/leads/meta/duplicate-dismissals').catch(() => ({ dismissals: [] })),
+]).then(([{ leads }, { competitors }, dismissed]) => ({
+  leads, competitors, dismissals: dismissed.dismissals || [],
+}));
 
-async function reload(redraw = true) {
-  const [{ leads }, { competitors }, dismissed] = await Promise.all([
-    get('/leads'), get('/leads/meta/competitors'),
-    // approvals are a nice-to-have: if the table isn't migrated yet the board
-    // must still load, just without the "not a duplicate" memory
-    get('/leads/meta/duplicate-dismissals').catch(() => ({ dismissals: [] })),
-  ]);
+function applyBoard({ leads, competitors, dismissals }) {
   ctx.leads = leads;
   // id → lead, so delegated row handlers resolve a row without scanning
   // thousands of records on every press
   ctx.byId = new Map(leads.map(l => [l.id, l]));
   ctx.competitors = competitors;
-  ctx.dismissals = dismissed.dismissals || [];
-  if (redraw) draw();
+  ctx.dismissals = dismissals;
+}
+
+// A background refresh must not throw the reader back to the top of the board.
+function redrawKeepingPlace() {
+  const y = window.scrollY;
+  draw();
+  requestAnimationFrame(() => window.scrollTo({ top: y }));
+}
+
+// reset pagination whenever the visible set changes (pipeline/search/filter/sort).
+// Every such change also lands in boardView, so returning to this tab restores
+// the same view rather than snapping back to the main pipeline.
+function resetPaging() {
+  ctx.limit = PAGE_SIZE;
+  ctx.selected.clear();
+  rememberView();
+}
+
+function rememberView() {
+  boardView = {
+    pipeline: ctx.pipeline, search: ctx.search,
+    sort: { ...ctx.sort }, filters: { ...ctx.filters },
+  };
+}
+
+async function reload(redraw = true) {
+  const data = await fetchBoard();
+  put(CACHE_KEY, data, rowsSig(data.leads));
+  applyBoard(data);
+  if (redraw) redrawKeepingPlace();
+}
+
+// ---------------- live updates from the other users ----------------
+// Two different behaviours on purpose:
+//   a field changed  → patch that one row silently, so the board simply agrees
+//                      with what your colleague sees
+//   rows added/removed → offer a refresh instead of reshuffling the board while
+//                      someone is reading or mid-scroll
+let unsubscribeLive = null;
+let pendingLive = null; // { count, who }
+
+function subscribeLive() {
+  unsubscribeLive?.();
+  unsubscribeLive = onLive((ev) => {
+    if (!ctx?.view?.isConnected || ev.entity !== 'lead') return;
+    if (ev.by && ev.by === ctx.state?.user?.id) return; // our own edit, already applied
+    if (ev.action === 'updated' && ev.lead) return patchLead(ev.lead);
+    queueLiveBanner(ev);
+  });
+}
+
+function patchLead(fresh) {
+  const i = ctx.leads.findIndex(l => l.id === fresh.id);
+  if (i === -1) return queueLiveBanner({ action: 'created', count: 1 });
+
+  // children aren't in the event payload — keep what we already had
+  const merged = { ...ctx.leads[i], ...fresh };
+  ctx.leads[i] = merged;
+  ctx.byId.set(merged.id, merged);
+  put(CACHE_KEY, { leads: ctx.leads, competitors: ctx.competitors, dismissals: ctx.dismissals },
+    rowsSig(ctx.leads));
+
+  const rows = [...document.querySelectorAll(`tr[data-id="${merged.id}"]`)];
+  if (!rows.length || !boardRef) return;
+  // never yank a cell out from under someone who is typing in it
+  if (rows.some(tr => tr.contains(document.activeElement))) return;
+
+  for (const [table, part] of boardRef.tables) {
+    const old = table.tBodies[0]?.querySelector(`tr[data-id="${merged.id}"]`);
+    if (!old) continue;
+    const idx = old.rowIndex - (table.tHead?.rows.length || 0);
+    const next = buildRow(merged, boardRef.cols, part);
+    if (ctx.selected.has(merged.id)) next.classList.add('row-selected');
+    next.classList.add('row-live');
+    old.replaceWith(next);
+    if (boardRef.sync && idx >= 0) requestAnimationFrame(() => boardRef.sync(idx, idx + 1));
+  }
+  setTimeout(() => {
+    for (const tr of document.querySelectorAll(`tr[data-id="${merged.id}"]`)) tr.classList.remove('row-live');
+  }, 2000);
+}
+
+function queueLiveBanner(ev) {
+  pendingLive = {
+    count: (pendingLive?.count || 0) + (ev.count || 1),
+    who: ev.by_name || pendingLive?.who || '',
+  };
+  renderLiveBanner();
+}
+
+function renderLiveBanner() {
+  const host = ctx?.view?.querySelector('#leads-host');
+  if (!host) return;
+  host.querySelector('.live-banner')?.remove();
+  if (!pendingLive) return;
+
+  const who = pendingLive.who ? `${pendingLive.who} ` : '';
+  const bar = h('div', { class: 'live-banner' },
+    h('span', {}, `🔄 ${who}עדכן ${pendingLive.count.toLocaleString('he-IL')} רשומות`),
+    h('span', { style: 'flex:1' }),
+    h('button', {
+      class: 'btn sm primary', onclick: withBusy(async () => {
+        pendingLive = null;
+        await reload();
+      }),
+    }, 'רענון'),
+    h('button', { class: 'btn sm', onclick: () => { pendingLive = null; renderLiveBanner(); } }, '✕'));
+  host.querySelector('.board-toolbar')?.after(bar);
 }
 
 // ---------------- columns ----------------
@@ -261,6 +388,8 @@ function draw() {
 
   const selBar = selectionBar();
   if (selBar) host.append(selBar);
+
+  if (pendingLive) renderLiveBanner();
 
   const dupBar = duplicateBanner();
   if (dupBar) host.append(dupBar);
@@ -563,14 +692,15 @@ function buildBoard(rows) {
   // `from` limits the work to rows appended since the last pass. Rows already
   // pinned cannot change height, so re-measuring them costs a full-table reflow
   // and buys nothing — at a few thousand rows that reflow is the freeze.
-  const syncRows = (from = 0) => {
+  const syncRows = (from = 0, to = Infinity) => {
     const pairs = [];
     if (from === 0) {
       const head = [frozen.tHead?.rows[0], rest.tHead?.rows[0]];
       if (head[0] && head[1]) pairs.push(head);
     }
     const a = frozen.tBodies[0]?.rows || [], b = rest.tBodies[0]?.rows || [];
-    for (let i = from; i < Math.min(a.length, b.length); i++) pairs.push([a[i], b[i]]);
+    const end = Math.min(a.length, b.length, to);
+    for (let i = from; i < end; i++) pairs.push([a[i], b[i]]);
     if (!pairs.length) return;
 
     // clear every override first, then measure: reading heights that are still
