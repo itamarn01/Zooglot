@@ -3,6 +3,7 @@
 // with a live total. Client-editable fields write straight back to the CRM.
 // Approve or sign; on signing a PDF is generated on the device. he/en + RTL/LTR.
 import { h, toast, signaturePad, fmtMoney } from './ui.js';
+import { attachPlaceAutocomplete } from './places.js';
 
 const API_BASE = window.__API_BASE__ || '';
 const params = new URLSearchParams(location.search);
@@ -66,6 +67,13 @@ function isDateField(f) {
   if (f.lead_field && (DATE_LEAD_FIELDS.includes(f.lead_field) || /_date$/.test(f.lead_field))) return true;
   return /תאריך|\bdate\b/i.test(f.label || '');
 }
+// Which fill-in fields are venues (→ autocomplete). Either bound to the lead's
+// event_location, or a free field whose label asks for a place.
+function isPlaceField(f) {
+  if (f.lead_field === 'event_location') return true;
+  return /מיקום|אולם|גן אירועים|venue|location/i.test(f.label || '');
+}
+
 // Normalise any stored value to the yyyy-mm-dd that <input type="date"> needs.
 function toDateInputValue(v) {
   if (!v) return '';
@@ -458,12 +466,17 @@ function dataEntryPanel(fields) {
   }
   for (const f of fields) {
     const date = isDateField(f);
-    body.append(h('label', { class: 'field' }, h('span', {}, f.label),
-      h('input', {
-        type: date ? 'date' : 'text',
-        value: date ? toDateInputValue(f.value) : (f.value || ''),
-        dataset: { key: f.key },
-      })));
+    const input = h('input', {
+      type: date ? 'date' : 'text',
+      value: date ? toDateInputValue(f.value) : (f.value || ''),
+      dataset: { key: f.key },
+    });
+    // venue fields get the same suggestions as the board, so the hall name on a
+    // signed contract matches the one in the CRM
+    if (!date && isPlaceField(f)) {
+      attachPlaceAutocomplete(input, `${API_BASE}/api/public/places`);
+    }
+    body.append(h('label', { class: 'field' }, h('span', {}, f.label), input));
   }
   const sheet = h('div', { class: 'data-sheet no-print' },
     h('div', { class: 'data-sheet-head' },

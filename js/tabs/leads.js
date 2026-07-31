@@ -8,6 +8,9 @@ import { formatPhone, sanitizePhone, phoneKey } from '../phone.js';
 import { toIsraelInputValue, israelInputValueToDate, formatIsrael } from '../time.js';
 import { swr, peek, put, rowsSig } from '../store.js';
 import { onLive } from '../live.js';
+import { attachPlaceAutocomplete } from '../places.js';
+
+const API_BASE = (typeof window !== 'undefined' && window.__API_BASE__) || '';
 
 // Rows revealed per scroll step. Appending is now O(page) rather than O(total),
 // so a larger page means fewer pauses at the same cost per pause.
@@ -223,7 +226,7 @@ function columns() {
     { key: 'relation', label: 'קרבה', type: 'select', options: RELATIONS.map(r => [r, r]), chip: 'relation' },
     { key: 'event_type', label: 'סוג אירוע', type: 'select', options: EVENT_TYPES.map(x => [x, x]) },
     { key: 'event_date', label: 'תאריך אירוע', type: 'date' },
-    { key: 'event_location', label: 'מיקום האירוע', type: 'text' },
+    { key: 'event_location', label: 'מיקום האירוע', type: 'place' },
     { key: 'phone1', label: 'טלפון 1', type: 'tel' },
     { key: 'phone2', label: 'טלפון 2', type: 'tel' },
     { key: 'email', label: 'מייל', type: 'email' },
@@ -1042,7 +1045,7 @@ function buildCell(lead, col) {
     return td;
   }
 
-  const typeMap = { text: 'text', date: 'date', number: 'number', tel: 'tel', email: 'email' };
+  const typeMap = { text: 'text', date: 'date', number: 'number', tel: 'tel', email: 'email', place: 'text' };
   const input = h('input', {
     class: 'cell-edit',
     type: typeMap[col.type] || 'text',
@@ -1050,6 +1053,10 @@ function buildCell(lead, col) {
     dir: ['tel', 'email', 'number'].includes(col.type) ? 'ltr' : 'rtl',
   });
   input.addEventListener('change', () => save(col.type === 'number' ? (input.value === '' ? null : Number(input.value)) : input.value));
+  // venue suggestions: past venues first, then OpenStreetMap
+  if (col.type === 'place') {
+    attachPlaceAutocomplete(input, `${API_BASE}/api/places`, (label) => save(label));
+  }
   td.append(input);
   return td;
 }
@@ -1351,7 +1358,7 @@ async function openUpdatesDrawer(lead, initialTab = 'updates') {
         grid.append(h('label', { class: 'field' }, h('span', {}, col.label), telCell(lead[col.key] ?? '', (v) => save(col.key, v))));
         continue;
       }
-      const typeMap = { text: 'text', date: 'date', number: 'number', tel: 'tel', email: 'email' };
+      const typeMap = { text: 'text', date: 'date', number: 'number', tel: 'tel', email: 'email', place: 'text' };
       const input = h('input', {
         type: typeMap[col.type] || 'text',
         value: lead[col.key] ?? '',
@@ -1359,6 +1366,9 @@ async function openUpdatesDrawer(lead, initialTab = 'updates') {
       });
       input.addEventListener('change', () =>
         save(col.key, col.type === 'number' ? (input.value === '' ? null : Number(input.value)) : input.value));
+      if (col.type === 'place') {
+        attachPlaceAutocomplete(input, `${API_BASE}/api/places`, (label) => save(col.key, label));
+      }
       grid.append(h('label', { class: 'field' }, h('span', {}, col.label), input));
     }
     bodyEl.append(h('p', { class: 'muted' }, 'כל שינוי נשמר אוטומטית.'), grid);

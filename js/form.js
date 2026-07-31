@@ -9,6 +9,8 @@
 //
 // Every view is tracked so the band can see views, submissions, completion rate
 // and where people drop off. Tracking is best-effort and never blocks a submit.
+import { attachPlaceAutocomplete } from './places.js';
+
 const API_BASE = window.__API_BASE__ || '';
 const slug = new URLSearchParams(location.search).get('f');
 const root = document.getElementById('form-root');
@@ -180,6 +182,11 @@ const AUTOCOMPLETE = {
         inputmode: f.type === 'tel' ? 'tel' : f.type === 'email' ? 'email' : null,
       });
       if (['tel', 'email'].includes(f.type)) input.dir = 'ltr';
+      // venue suggestions — the same field the team gets on the board, so the
+      // client picks the hall's real name instead of typing an approximation
+      if (f.key === 'event_location') {
+        attachPlaceAutocomplete(input, `${API_BASE}/api/public/places`);
+      }
     }
     if (f.required) input.required = true;
     inputs[f.key] = input;
