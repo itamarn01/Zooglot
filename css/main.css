@@ -844,9 +844,37 @@ main#view > h2::after {
   /* cell content can never push a row taller than --row-h — table layout treats
      a cell height as a minimum, and one pane growing would desync the other */
   .board-split td > * { max-height: calc(var(--row-h) - 6px); overflow: hidden; }
-  /* static headers: a sticky header in only one of the two panes would drift out
-     of alignment with the other */
+  /* The real headers stay static — a sticky header in only one of the two panes
+     would drift out of alignment with the other, and the scrolling pane's own
+     horizontal scroll container would swallow `sticky` anyway. A fixed clone
+     (attachStickyHeader) provides the pinned row instead. */
   .board-split thead th { position: static; height: 34px; }
+
+  /* the pinned copy of the header row */
+  /* .board-split sets a 120px bottom pad further down this file; the clone
+     carries that class for its sizing vars, so it needs the higher specificity
+     to drop the pad rather than relying on source order. */
+  .board-head-clone.board-split {
+    position: fixed; z-index: 40; pointer-events: none;
+    padding-bottom: 0; overflow: hidden;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 6px 10px -6px rgba(0, 0, 0, .7);
+  }
+  .board-head-clone .split-rest { overflow: hidden; }
+  .board-head-clone .split-frozen { box-shadow: 6px 0 6px -6px rgba(0, 0, 0, .6); }
+  .board-head-clone .col-resize { display: none; }
+
+  /* the name is a tap target on phones — it opens the item card */
+  .name-open {
+    display: block; width: 100%; text-align: start;
+    background: none; border: none; padding: 3px 4px; margin: 0;
+    color: var(--text); font-family: inherit; font-weight: 600;
+    font-size: var(--board-fs, 12.5px); line-height: 1.25;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    cursor: pointer;
+  }
+  .name-open:active { color: var(--brand); }
   table.board th { font-size: var(--board-hfs, 11px); padding: 6px 5px; }
   table.board.grid th { padding-inline-end: 9px; }
   table.board td { padding: 1px 3px; font-size: var(--board-fs, 12.5px); }

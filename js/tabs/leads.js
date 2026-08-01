@@ -399,6 +399,7 @@ function draw() {
 
   if (!rows.length) {
     boardRef = null;
+    stickyHead?.destroy();
     host.append(h('div', { class: 'empty-state' }, h('div', { class: 'big' }, '🎷'), h('p', {}, 'אין לידים בתצוגה הזו')));
     return;
   }
@@ -677,6 +678,7 @@ const PHONE_COL_SCALE = () => (isPhone() ? TEXT_SIZE_SCALE[textSize] : 1);
 function buildBoard(rows) {
   const cols = columns();
   if (!isPhone()) {
+    stickyHead?.destroy(); // desktop pins its header with plain CSS
     const table = buildTable(rows, cols, 'all');
     boardRef = { cols, tables: [[table, 'all']], sync: null };
     return h('div', { class: 'table-wrap' }, table);
@@ -717,11 +719,108 @@ function buildBoard(rows) {
     });
   };
   boardRef = { cols, tables: [[frozen, 'frozen'], [rest, 'rest']], sync: syncRows };
+  boardRef.sticky = attachStickyHeader(wrap, frozen, rest);
   requestAnimationFrame(() => syncRows(0));
   // fonts land after first paint and change text metrics → re-sync once more
   document.fonts?.ready?.then(() => requestAnimationFrame(() => syncRows(0)));
   attachPinchZoom(wrap);
   return wrap;
+}
+
+// Sticky column headers on phones.
+//
+// `position: sticky` cannot do this here. The scrolling pane owns a horizontal
+// scroll container, which makes it the containing block for anything sticky
+// inside it — so a sticky <thead> pins to a scrollport that never moves
+// vertically, and simply never sticks. Instead: a fixed copy of the header row,
+// mirrored to the pane's horizontal scroll, shown only while the real header is
+// off screen.
+//
+// The clone is inert (`pointer-events: none`) — it is an orientation aid, and
+// taps belong to the rows underneath it.
+let stickyHead = null;
+
+function attachStickyHeader(wrap, frozenTable, restTable) {
+  stickyHead?.destroy();
+
+  const headOnly = (t) => {
+    const c = h('table', { class: t.className });
+    const cg = t.querySelector('colgroup');
+    if (cg) c.append(cg.cloneNode(true));
+    if (t.tHead) c.append(t.tHead.cloneNode(true));
+    return c;
+  };
+
+  const frozenClone = headOnly(frozenTable);
+  const restClone = headOnly(restTable);
+  const restPane = restTable.parentElement;   // .split-rest — the real scroller
+  const restBox = h('div', { class: 'split-rest' }, restClone);
+  const clone = h('div', {
+    class: `board-head-clone board-split ts-${textSize}`, 'aria-hidden': 'true',
+  }, h('div', { class: 'split-frozen' }, frozenClone), restBox);
+  clone.style.display = 'none';
+  document.body.append(clone);
+
+  const topOffset = () =>
+    document.querySelector('.topbar')?.getBoundingClientRect().bottom || 0;
+
+  // Height never changes while the board is mounted, so measure it once. The
+  // scroll handler must not force a layout on every frame — this board was just
+  // reworked to stop exactly that kind of cost from creeping in.
+  let headH = 0;
+
+  const update = () => {
+    if (!wrap.isConnected) return destroy();
+    const r = wrap.getBoundingClientRect();
+    const top = topOffset();
+    // visible only while the board straddles the top bar: the real header has
+    // scrolled past, and there are still rows below worth labelling
+    const show = r.top < top && r.bottom > top + (headH || 35);
+    if (!show) { clone.style.display = 'none'; return; }
+    clone.style.display = 'flex';
+    clone.style.top = `${top}px`;
+    clone.style.left = `${r.left}px`;
+    clone.style.width = `${r.width}px`;
+    if (!headH) headH = clone.offsetHeight;
+    restBox.scrollLeft = restPane.scrollLeft;
+  };
+
+  let queued = false;
+  const onScroll = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; update(); });
+  };
+
+  // Column widths live in the colgroup and change when a header is dragged, so
+  // the clone has to be told — copying them on every scroll frame would mean
+  // reading ~60 styles per frame for nothing.
+  const refreshWidths = () => {
+    for (const [real, copy] of [[frozenTable, frozenClone], [restTable, restClone]]) {
+      const a = real.querySelectorAll('colgroup col');
+      const b = copy.querySelectorAll('colgroup col');
+      for (let i = 0; i < Math.min(a.length, b.length); i++) b[i].style.width = a[i].style.width;
+    }
+    headH = 0;
+    update();
+  };
+
+  const onRestScroll = () => { restBox.scrollLeft = restPane.scrollLeft; };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll);
+  restPane.addEventListener('scroll', onRestScroll, { passive: true });
+
+  function destroy() {
+    window.removeEventListener('scroll', onScroll);
+    window.removeEventListener('resize', onScroll);
+    restPane.removeEventListener('scroll', onRestScroll);
+    clone.remove();
+    if (stickyHead && stickyHead.el === clone) stickyHead = null;
+  }
+
+  stickyHead = { el: clone, destroy, refreshWidths, update };
+  requestAnimationFrame(update);
+  return stickyHead;
 }
 
 // Pinch on the board to step through the three text sizes, like Monday. Uses
@@ -846,6 +945,7 @@ function resizeHandle(col, colIndex) {
       handle.removeEventListener('pointermove', onMove);
       handle.removeEventListener('pointerup', onUp);
       saveWidths(ctx.colWidths);
+      boardRef?.sticky?.refreshWidths(); // the clone's colgroup is a snapshot
     };
     handle.addEventListener('pointermove', onMove);
     handle.addEventListener('pointerup', onUp);
@@ -982,6 +1082,18 @@ function buildCell(lead, col) {
       class: 'icon-btn updates-inline', title: 'עדכונים ותכתובת',
       onclick: (e) => { e.stopPropagation(); openUpdatesDrawer(lead); },
     }, '💬', lead.updates_count ? h('sup', {}, lead.updates_count) : ''));
+    return td;
+  }
+
+  // On phones the name opens the item card instead of editing in place, the way
+  // Monday does: the pinned column is narrow, so inline editing there was
+  // fiddly, and the card is where every field already lives — including the
+  // name, which is why renaming only happens there.
+  if (col.key === 'name' && isPhone()) {
+    td.append(h('button', {
+      class: 'name-open', title: 'פתיחת כרטיס הליד',
+      onclick: (e) => { e.stopPropagation(); openUpdatesDrawer(lead, 'card'); },
+    }, lead.name || '—'));
     return td;
   }
 
