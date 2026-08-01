@@ -135,6 +135,53 @@ main#view { padding: 20px; max-width: 1500px; margin: 0 auto; }
 .btn.lg { padding: 14px 26px; font-size: 16px; min-height: 52px; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 
+/* ---------- bottom sheet ---------- */
+/* Rises from the thumb rather than the middle of the screen, and the keyboard
+   pushes it up instead of covering it. */
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 110;
+  background: rgba(5, 12, 15, .55);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.sheet {
+  width: min(560px, 100%); max-height: 86vh; overflow-y: auto;
+  background: var(--surface); border-top: 1px solid var(--line);
+  border-radius: 18px 18px 0 0;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+  transform: translateY(100%); transition: transform .18s ease-out;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, .5);
+}
+.sheet.open { transform: none; }
+@media (prefers-reduced-motion: reduce) { .sheet { transition: none; } }
+.sheet-grab {
+  width: 38px; height: 4px; border-radius: 99px;
+  background: var(--line); margin: 4px auto 10px;
+}
+.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.sheet-head b { font-size: 16px; }
+.sheet-body { margin-bottom: 14px; }
+/* 16px: anything smaller makes iOS Safari zoom the page on focus */
+.sheet-input {
+  width: 100%; max-width: 100%; min-width: 0;
+  font-size: 16px; min-height: 50px; padding: 12px 14px;
+}
+.sheet-actions { display: flex; gap: 10px; }
+.sheet-actions .btn { flex: 1; min-height: 50px; justify-content: center; font-size: 15px; }
+
+/* menu variant */
+.sheet-menu { display: flex; flex-direction: column; gap: 2px; }
+.sheet-item {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  min-height: 52px; padding: 10px 12px; border-radius: 10px;
+  background: none; border: none; color: var(--text);
+  font-family: inherit; font-size: 15.5px; text-align: start; cursor: pointer;
+}
+.sheet-item:active { background: rgba(255, 255, 255, .07); }
+.sheet-item.danger { color: var(--danger); }
+.sheet-item .si-icon { flex: none; width: 24px; text-align: center; opacity: .85; font-size: 15px; }
+.sheet-item .si-label { flex: 1; }
+.sheet-item .si-hint { flex: none; font-size: 12.5px; color: var(--text-dim); }
+
 /* live updates from other users */
 .live-banner {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -195,8 +242,20 @@ input, select, textarea {
   border-radius: 10px; padding: 8px 12px; width: 100%;
 }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--brand); }
-label.field { display: block; margin-bottom: 12px; }
+label.field { display: block; margin-bottom: 12px; min-width: 0; }
 label.field > span { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 4px; }
+
+/* iOS gives date inputs an intrinsic width from their native control, so they
+   ignore width:100% and grow past their container — which made the item card
+   scroll sideways and every other field look misaligned against them. Dropping
+   the native appearance makes them size like every other field. */
+input[type="date"], input[type="datetime-local"], input[type="time"] {
+  -webkit-appearance: none; appearance: none;
+  max-width: 100%; min-width: 0;
+}
+input[type="date"]::-webkit-date-and-time-value,
+input[type="datetime-local"]::-webkit-date-and-time-value { text-align: start; margin: 0; }
+input[type="date"]::-webkit-calendar-picker-indicator { margin-inline-start: auto; }
 
 /* ---------- cards ---------- */
 .card {
@@ -736,9 +795,12 @@ main#view > h2::after {
 }
 .drawer-tabs button:hover { color: var(--text); }
 .drawer-tabs button.active { color: var(--brand); border-bottom-color: var(--brand); }
-.drawer .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.drawer .card-grid label.field { margin-bottom: 4px; }
-@media (max-width: 640px) { .drawer .card-grid { grid-template-columns: 1fr; } }
+/* minmax(0,1fr): grid tracks are min-content by default, so one wide field
+   (a native date control) would stretch the whole card past the drawer */
+.drawer .card-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.drawer .card-grid label.field { margin-bottom: 4px; min-width: 0; }
+.drawer .card-grid input, .drawer .card-grid select, .drawer .card-grid textarea { max-width: 100%; }
+@media (max-width: 640px) { .drawer .card-grid { grid-template-columns: minmax(0, 1fr); } }
 
 .reminder-item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--bg-soft); }
 .reminder-item.sent { border-inline-start: 4px solid var(--ok); }
@@ -864,6 +926,26 @@ main#view > h2::after {
   .board-head-clone .split-rest { overflow: hidden; }
   .board-head-clone .split-frozen { box-shadow: 6px 0 6px -6px rgba(0, 0, 0, .6); }
   .board-head-clone .col-resize { display: none; }
+
+  /* cells are read-only on phones; a tap opens the editor sheet */
+  .cell-tap {
+    display: flex; align-items: center; gap: 4px; width: 100%;
+    background: none; border: none; padding: 3px 4px; margin: 0;
+    color: var(--text); font-family: inherit;
+    font-size: var(--board-fs, 12.5px); line-height: 1.25;
+    text-align: start; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; cursor: pointer; min-height: 100%;
+  }
+  .cell-tap:active { background: rgba(255, 255, 255, .06); }
+  .cell-tap .cell-empty { color: var(--text-dim); opacity: .5; }
+  .cell-tap .chip { font-size: calc(var(--board-fs, 12.5px) - 1px); }
+  .tel-cell-ro { display: inline-flex; align-items: center; gap: 4px; overflow: hidden; }
+  .tel-cell-ro .tel-flag-img { width: 14px; height: auto; flex: none; }
+
+  /* a collapsed column stays as a thin strip, so it can be found and reopened */
+  .board-split th.col-shut .th-label { font-size: 11px; opacity: .55; }
+  .board-split th.col-shut .col-resize { display: none; }
+  td.col-shut, th.col-shut { padding: 0; overflow: hidden; }
 
   /* the name is a tap target on phones — it opens the item card */
   .name-open {

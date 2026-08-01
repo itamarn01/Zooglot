@@ -51,6 +51,49 @@ export function modal(title, contentEl, { wide = false, actions = [] } = {}) {
   return { close, box };
 }
 
+// Bottom sheet — the phone-native way to present a short form or a menu:
+// it rises from the thumb rather than the middle of the screen, and the
+// keyboard pushes it instead of covering it.
+//
+// `actions` follows modal()'s shape. Returns { close, box }.
+export function sheet(title, contentEl, { actions = [] } = {}) {
+  const backdrop = h('div', { class: 'sheet-backdrop' });
+  const close = () => {
+    box.classList.remove('open');
+    // let the slide-down finish before the node goes
+    setTimeout(() => backdrop.remove(), 180);
+  };
+  const actionBtns = actions.map((a) => {
+    const b = h('button', { class: `btn ${a.kind || ''}` }, a.label);
+    b.addEventListener('click', async () => {
+      if (b.classList.contains('loading')) return;
+      b.classList.add('loading');
+      try { await a.onclick(close); } finally { b.classList.remove('loading'); }
+    });
+    return b;
+  });
+  const box = h('div', { class: 'sheet' },
+    h('div', { class: 'sheet-grab' }),
+    h('div', { class: 'sheet-head' },
+      h('b', {}, title),
+      h('button', { class: 'icon-btn', onclick: close, 'aria-label': 'סגור' }, '✕')),
+    h('div', { class: 'sheet-body' }, contentEl),
+    actionBtns.length ? h('div', { class: 'sheet-actions' }, ...actionBtns) : null);
+  backdrop.append(box);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+  document.body.append(backdrop);
+  requestAnimationFrame(() => box.classList.add('open'));
+  return { close, box };
+}
+
+// A tappable row inside a sheet — the menu idiom (icon, label, optional hint).
+export function sheetItem(icon, label, onclick, { hint = '', danger = false } = {}) {
+  return h('button', { class: `sheet-item${danger ? ' danger' : ''}`, onclick },
+    h('span', { class: 'si-icon' }, icon),
+    h('span', { class: 'si-label' }, label),
+    hint ? h('span', { class: 'si-hint' }, hint) : null);
+}
+
 // Wrap an async click handler so the button shows a spinner and can't be
 // double-clicked while the promise is pending. Usage: onclick: withBusy(async (e) => {...})
 export function withBusy(handler) {

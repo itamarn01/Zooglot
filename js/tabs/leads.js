@@ -2,7 +2,7 @@
 // search/filter/sort, pipelines (open/win/lost), merge, contacts, updates
 // thread, voice-note AI capture and Google Calendar sync.
 import { get, post, patch, del, upload } from '../api.js';
-import { h, toast, modal, confirmModal, debounce, skeletonTable, withBusy } from '../ui.js';
+import { h, toast, modal, confirmModal, debounce, skeletonTable, withBusy, sheet, sheetItem } from '../ui.js';
 import { openImportWizard } from './import.js';
 import { formatPhone, sanitizePhone, phoneKey } from '../phone.js';
 import { toIsraelInputValue, israelInputValueToDate, formatIsrael } from '../time.js';
@@ -49,6 +49,20 @@ let boardRef = null;
 
 const loadWidths = () => { try { return JSON.parse(localStorage.getItem(WIDTHS_KEY)) || {}; } catch { return {}; } };
 const saveWidths = debounce((w) => localStorage.setItem(WIDTHS_KEY, JSON.stringify(w)), 300);
+
+// Collapsed columns survive reloads like widths do. A collapsed column stays in
+// the table as a thin strip rather than disappearing: a column you cannot see
+// and cannot find again is worse than a narrow one.
+const COLLAPSE_KEY = 'zooglot_collapsed_cols';
+const COLLAPSED_W = 22;
+const loadCollapsed = () => {
+  try { return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY)) || []); } catch { return new Set(); }
+};
+const saveCollapsed = (s) => {
+  try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...s])); } catch { /* private mode */ }
+};
+let collapsedCols = loadCollapsed();
+const isCollapsed = (key) => collapsedCols.has(key);
 
 // Which pipeline, search and sort the user was on. Kept outside ctx so leaving
 // for חוזים and coming back lands where they were, instead of resetting to the
@@ -769,6 +783,16 @@ function attachStickyHeader(wrap, frozenTable, restTable) {
   // reworked to stop exactly that kind of cost from creeping in.
   let headH = 0;
 
+  // The real pane scrolls, so its table overflows at full width. The clone's
+  // pane is `overflow: hidden`, which makes the table shrink-to-fit the pane —
+  // and `table-layout: fixed` then divides the columns proportionally, so every
+  // header sat slightly off its column, drifting further along the row. Pinning
+  // both clone tables to the real tables' widths removes the shrink entirely.
+  const syncWidths = () => {
+    frozenClone.style.width = `${frozenTable.offsetWidth}px`;
+    restClone.style.width = `${restTable.offsetWidth}px`;
+  };
+
   const update = () => {
     if (!wrap.isConnected) return destroy();
     const r = wrap.getBoundingClientRect();
@@ -802,6 +826,7 @@ function attachStickyHeader(wrap, frozenTable, restTable) {
       for (let i = 0; i < Math.min(a.length, b.length); i++) b[i].style.width = a[i].style.width;
     }
     headH = 0;
+    syncWidths();
     update();
   };
 
@@ -819,7 +844,9 @@ function attachStickyHeader(wrap, frozenTable, restTable) {
   }
 
   stickyHead = { el: clone, destroy, refreshWidths, update };
-  requestAnimationFrame(update);
+  requestAnimationFrame(() => { syncWidths(); update(); });
+  // fonts land after first paint and change every column's measured width
+  document.fonts?.ready?.then(() => requestAnimationFrame(() => { syncWidths(); update(); }));
   return stickyHead;
 }
 
@@ -846,6 +873,44 @@ function attachPinchZoom(el) {
   el.addEventListener('touchend', () => { startDist = 0; }, { passive: true });
 }
 
+// Column menu (phones). Everything a mouse gets from hovering, dragging or
+// right-clicking a header, in a list a thumb can hit.
+function openColumnMenu(col) {
+  const shut = isCollapsed(col.key);
+  const curW = Math.round(ctx.colWidths[col.key] || col.width || DEFAULT_W);
+
+  const apply = (close) => { close(); resetPaging(); draw(); };
+  const setWidth = (w) => {
+    ctx.colWidths[col.key] = Math.max(70, Math.min(600, Math.round(w)));
+    saveWidths(ctx.colWidths);
+  };
+  const sortBy = (asc, close) => { ctx.sort = { col: col.key, asc }; apply(close); };
+
+  const items = h('div', { class: 'sheet-menu' });
+  const s = sheet(col.label, items);
+
+  items.append(
+    sheetItem(shut ? '↔' : '><', shut ? 'הרחבה' : 'צמצום', () => {
+      shut ? collapsedCols.delete(col.key) : collapsedCols.add(col.key);
+      saveCollapsed(collapsedCols);
+      apply(s.close);
+    }, { hint: shut ? '' : 'הטור יישאר כפס דק' }),
+    // width controls are meaningless while collapsed — the strip has a fixed width
+    ...(shut ? [] : [
+      sheetItem('→', 'הגדלת רוחב', () => { setWidth(curW + 50); apply(s.close); }, { hint: `${curW}px` }),
+      sheetItem('←', 'הקטנת רוחב', () => { setWidth(curW - 50); apply(s.close); }, { hint: `${curW}px` }),
+    ]),
+    sheetItem('↓', 'מיון עולה', () => sortBy(true, s.close),
+      { hint: ctx.sort.col === col.key && ctx.sort.asc ? 'פעיל' : '' }),
+    sheetItem('↑', 'מיון יורד', () => sortBy(false, s.close),
+      { hint: ctx.sort.col === col.key && !ctx.sort.asc ? 'פעיל' : '' }),
+    ...(ctx.colWidths[col.key] ? [sheetItem('⟲', 'איפוס רוחב', () => {
+      delete ctx.colWidths[col.key];
+      saveWidths(ctx.colWidths);
+      apply(s.close);
+    })] : []));
+}
+
 // visible 3-step text-size switcher (phones) — pinching is not discoverable
 function textSizeControl() {
   if (!isPhone()) return null;
@@ -859,7 +924,9 @@ function textSizeControl() {
 
 // part: 'all' (one table) | 'frozen' (checkbox + name) | 'rest' (everything else)
 function buildTable(rows, cols, part) {
-  const width = (c) => Math.round((ctx.colWidths[c.key] || c.width || DEFAULT_W) * PHONE_COL_SCALE());
+  const width = (c) => (isCollapsed(c.key)
+    ? COLLAPSED_W
+    : Math.round((ctx.colWidths[c.key] || c.width || DEFAULT_W) * PHONE_COL_SCALE()));
   const dataCols = part === 'frozen' ? cols.slice(0, 1) : part === 'rest' ? cols.slice(1) : cols;
   const hasCheckbox = part !== 'rest';
   const hasActions = part !== 'frozen';
@@ -894,18 +961,26 @@ function buildTable(rows, cols, part) {
     ...(hasCheckbox ? [h('th', { class: 'checkbox-col' + (part === 'all' ? ' sticky-col-1' : '') }, selectAllCb)] : []),
     ...dataCols.map((c) => {
       const isName = part !== 'rest' && c === cols[0];
-      const th = h('th', { class: `resizable${part === 'all' && isName ? ' sticky-col-2' : ''}` },
+      const shut = isCollapsed(c.key);
+      const th = h('th', {
+        class: `resizable${part === 'all' && isName ? ' sticky-col-2' : ''}${shut ? ' col-shut' : ''}`,
+        title: shut ? c.label : '',
+      },
         h('span', {
           class: 'th-label',
+          // On a phone there is no hover, no right-click and no room for a drag
+          // grip, so the header tap opens a menu (sort / width / collapse) the
+          // way Monday does. Desktop keeps click-to-sort.
           onclick: () => {
+            if (isPhone()) return openColumnMenu(c);
             if (ctx.sort.col === c.key) ctx.sort.asc = !ctx.sort.asc;
             else ctx.sort = { col: c.key, asc: true };
             resetPaging();
             draw();
           },
-        }, c.label, ctx.sort.col === c.key ? h('span', { class: 'sort-arrow' }, ctx.sort.asc ? ' ▲' : ' ▼') : ''),
-        // resizable on phones too (the grip gets a wider touch target in CSS),
-        // so columns that don't fit can simply be widened
+        }, shut ? '⋯' : c.label,
+        (!shut && ctx.sort.col === c.key) ? h('span', { class: 'sort-arrow' }, ctx.sort.asc ? ' ▲' : ' ▼') : ''),
+        // the drag grip stays for desktop; on phones the menu handles width
         resizeHandle(c, colIndex));
       colIndex++;
       return th;
@@ -1073,6 +1148,9 @@ function buildCell(lead, col) {
     }
   };
 
+  // a collapsed column keeps its place as a thin strip, with no content to draw
+  if (isCollapsed(col.key)) { td.classList.add('col-shut'); return td; }
+
   if (col.type === 'readonly') { td.append(col.render(lead)); return td; }
 
   // the 💬 updates entry point, as its own column right after the name
@@ -1101,6 +1179,21 @@ function buildCell(lead, col) {
     const n = (lead.contacts || []).length;
     td.append(h('button', { class: 'btn sm', onclick: () => openContactsModal(lead) },
       n ? `👥 ${lead.contacts.map(c => c.name).join(', ').slice(0, 22)}${n > 1 ? '…' : ''}` : '+ הוספה'));
+    return td;
+  }
+
+  // On a phone, editing in the grid means a 12px input inside a 100px column,
+  // with the keyboard covering the very row you are typing in. Tap to open a
+  // sheet instead: the cell shows its value, and the edit happens with room and
+  // an explicit save — the idiom Monday uses. Declared before the select / tel /
+  // link branches so every editable type goes through it.
+  //
+  // `status` is excluded on purpose: moving to LOST opens its own flow.
+  if (isPhone() && CELL_SHEET_TYPES.has(col.type)) {
+    td.append(h('button', {
+      class: 'cell-tap', title: col.label,
+      onclick: (e) => { e.stopPropagation(); openCellSheet(lead, col, save, td); },
+    }, cellDisplay(lead, col)));
     return td;
   }
 
@@ -1157,10 +1250,9 @@ function buildCell(lead, col) {
     return td;
   }
 
-  const typeMap = { text: 'text', date: 'date', number: 'number', tel: 'tel', email: 'email', place: 'text' };
   const input = h('input', {
     class: 'cell-edit',
-    type: typeMap[col.type] || 'text',
+    type: CELL_INPUT_TYPE[col.type] || 'text',
     value: lead[col.key] ?? '',
     dir: ['tel', 'email', 'number'].includes(col.type) ? 'ltr' : 'rtl',
   });
@@ -1171,6 +1263,94 @@ function buildCell(lead, col) {
   }
   td.append(input);
   return td;
+}
+
+// ---------------- phone cell editing ----------------
+const CELL_INPUT_TYPE = {
+  text: 'text', date: 'date', number: 'number', tel: 'tel', email: 'email',
+  place: 'text', link: 'url',
+};
+const CELL_SHEET_TYPES = new Set(['text', 'date', 'number', 'tel', 'email', 'place', 'link', 'select']);
+
+// What the cell shows when it is not being edited. Returns a node, so a chip
+// column keeps its colour instead of degrading to plain text.
+function cellDisplay(lead, col) {
+  const v = lead[col.key];
+  if (v === null || v === undefined || v === '') return h('span', { class: 'cell-empty' }, '—');
+
+  if (col.type === 'select') {
+    const label = (col.options || []).find(([val]) => String(val) === String(v))?.[1] || String(v);
+    if (!col.chip) return document.createTextNode(label);
+    const cls = col.chip === 'relation'
+      ? `relation-${v}`
+      : (v === 'לקוח משאלון' ? 'stage-form' : 'stage');
+    return h('span', { class: `chip ${cls}` }, label);
+  }
+  if (col.type === 'tel') {
+    const { iso2, display } = formatPhone(v);
+    return h('span', { class: 'tel-cell-ro' },
+      iso2 ? h('img', { class: 'tel-flag-img', src: `/assets/flags/${iso2}.svg`, alt: iso2, loading: 'lazy' }) : '📞',
+      h('span', { dir: 'ltr' }, display || String(v)));
+  }
+  if (col.type === 'number') {
+    return document.createTextNode(Number.isFinite(Number(v)) ? Number(v).toLocaleString('he-IL') : String(v));
+  }
+  if (col.type === 'date') {
+    const d = new Date(`${String(v).slice(0, 10)}T12:00:00`);
+    return document.createTextNode(isNaN(d) ? String(v) : d.toLocaleDateString('he-IL'));
+  }
+  return document.createTextNode(String(v));
+}
+
+// One editor per field type, so a date opens a calendar, a venue gets the
+// autocomplete, and a choice list gets a real picker.
+function openCellSheet(lead, col, save, td) {
+  let editor;
+  let read = () => editor.value;
+
+  if (col.type === 'select') {
+    editor = h('select', { class: 'sheet-input' },
+      h('option', { value: '' }, '—'),
+      ...(col.options || []).map(([v, t]) =>
+        h('option', { value: v, selected: String(lead[col.key] ?? '') === String(v) }, t)));
+  } else {
+    editor = h('input', {
+      class: 'sheet-input',
+      type: CELL_INPUT_TYPE[col.type] || 'text',
+      value: lead[col.key] ?? '',
+      dir: ['tel', 'email', 'number', 'link'].includes(col.type) ? 'ltr' : 'rtl',
+      inputmode: col.type === 'tel' ? 'tel' : col.type === 'number' ? 'decimal' : null,
+      placeholder: col.label,
+    });
+    if (col.type === 'number') read = () => (editor.value === '' ? null : Number(editor.value));
+    if (col.type === 'place') {
+      attachPlaceAutocomplete(editor, `${API_BASE}/api/places`);
+    }
+  }
+
+  const url = String(lead[col.key] ?? '');
+  const s = sheet(col.label, h('div', {}, editor), {
+    actions: [
+      { label: 'ביטול', onclick: (close) => close() },
+      // a contract link is there to be opened, not only edited
+      ...(col.type === 'link' && /^https?:\/\//i.test(url)
+        ? [{ label: '🔗 פתיחה', onclick: () => window.open(url, '_blank', 'noopener') }]
+        : []),
+      {
+        label: 'שמירה', kind: 'primary', onclick: async (close) => {
+          await save(read());
+          // the cell is a plain button, so repaint just its text
+          const btn = td.querySelector('.cell-tap');
+          if (btn) { btn.textContent = ''; btn.append(cellDisplay(lead, col)); }
+          close();
+        },
+      },
+    ],
+  });
+
+  // focus after the sheet has finished rising, or iOS scrolls the page instead
+  setTimeout(() => { editor.focus?.(); }, 220);
+  return s;
 }
 
 // ---------------- LOST flow ----------------
