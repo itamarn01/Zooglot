@@ -793,8 +793,12 @@ function attachStickyHeader(wrap, frozenTable, restTable) {
   // header sat slightly off its column, drifting further along the row. Pinning
   // both clone tables to the real tables' widths removes the shrink entirely.
   const syncWidths = () => {
-    frozenClone.style.width = `${frozenTable.offsetWidth}px`;
-    restClone.style.width = `${restTable.offsetWidth}px`;
+    // Copy the real tables' explicit widths verbatim. offsetWidth would fold in
+    // borders and round, which is enough to walk the last headers a pixel or
+    // two off their columns — and it changes with the text size and with any
+    // column the user has widened, so the drift moved around.
+    frozenClone.style.width = frozenTable.style.width || `${frozenTable.offsetWidth}px`;
+    restClone.style.width = restTable.style.width || `${restTable.offsetWidth}px`;
   };
 
   // Mirror the horizontal position with a transform rather than by copying
@@ -907,8 +911,11 @@ const isScrolling = () => Date.now() - lastScrollAt < 220;
 // restores it exactly. A class toggle plus a CSS transition (what this used to
 // be) can only ever play one fixed-length animation on crossing a threshold,
 // and it leaves the board in whichever state it last latched into.
-const SHRINK_SLACK = 8;   // px of scroll to ignore, so a nudge doesn't move it
-const SHRINK_RANGE = 150; // px of scroll that takes the column all the way in
+const SHRINK_SLACK = 10;  // px of scroll to ignore, so a nudge doesn't move it
+// Spread over roughly two columns' worth of scrolling: short ranges finish
+// while the finger is still moving, which reads as a jump however smooth the
+// curve is. The column should still be giving up width when you stop.
+const SHRINK_RANGE = 320; // px of scroll that takes the column all the way in
 const smoothstep = (p) => p * p * (3 - 2 * p);
 
 let nameShrink = null;
@@ -922,14 +929,12 @@ function attachNameShrink(wrap, restPane) {
 
   let fullW = 0, minW = 0;
   const measure = () => {
-    fullW = table.offsetWidth || frozen.offsetWidth || 0;
-    // Pin the table at its natural width so narrowing the pane CLIPS it. Left
-    // free, a fixed-layout table inside a narrowed box redistributes its
-    // columns proportionally — the checkbox would shrink along with the name,
-    // and every scroll frame would re-lay out the whole table.
-    if (fullW) table.style.width = `${fullW}px`;
+    // buildTable pins an explicit width on the table, so narrowing the pane
+    // CLIPS it rather than re-laying it out. Prefer that number: offsetWidth
+    // would fold in borders and drift a pixel on every re-measure.
+    fullW = parseInt(table.style.width, 10) || table.offsetWidth || frozen.offsetWidth || 0;
     const vw = window.innerWidth || document.documentElement?.clientWidth || 390;
-    minW = Math.max(60, Math.round(Math.min(fullW, vw * 0.18)));
+    minW = Math.max(60, Math.round(Math.min(fullW, vw * 0.25)));
   };
 
   let applied = -1;
@@ -988,13 +993,23 @@ function attachNameShrink(wrap, restPane) {
 // right-clicking a header, in a list a thumb can hit.
 function openColumnMenu(col) {
   const shut = isCollapsed(col.key);
-  const curW = Math.round(ctx.colWidths[col.key] || col.width || DEFAULT_W);
+  const clampW = (w) => Math.max(70, Math.min(600, Math.round(w)));
+  let curW = clampW(ctx.colWidths[col.key] || col.width || DEFAULT_W);
 
   const apply = (close) => { close(); resetPaging(); draw(); };
-  const setWidth = (w) => {
-    ctx.colWidths[col.key] = Math.max(70, Math.min(600, Math.round(w)));
+  // The width buttons leave the sheet open and redraw the board behind it, so a
+  // few taps in a row can walk the column to where you want it — closing after
+  // each 50px meant reopening the menu to see whether anything had happened.
+  const stepWidth = (delta) => {
+    const next = clampW(curW + delta);
+    if (next === curW) return;                    // already at the 70/600 limit
+    curW = next;
+    ctx.colWidths[col.key] = curW;
     saveWidths(ctx.colWidths);
+    for (const el of hints) el.textContent = `${curW}px`;
+    draw();
   };
+  const hints = [];
   const sortBy = (asc, close) => { ctx.sort = { col: col.key, asc }; apply(close); };
 
   const items = h('div', { class: 'sheet-menu' });
@@ -1007,10 +1022,12 @@ function openColumnMenu(col) {
       apply(s.close);
     }, { hint: shut ? '' : 'הטור יישאר כפס דק' }),
     // width controls are meaningless while collapsed — the strip has a fixed width
-    ...(shut ? [] : [
-      sheetItem('→', 'הגדלת רוחב', () => { setWidth(curW + 50); apply(s.close); }, { hint: `${curW}px` }),
-      sheetItem('←', 'הקטנת רוחב', () => { setWidth(curW - 50); apply(s.close); }, { hint: `${curW}px` }),
-    ]),
+    ...(shut ? [] : [50, -50].map((d) => {
+      const it = sheetItem(d > 0 ? '→' : '←', d > 0 ? 'הגדלת רוחב' : 'הקטנת רוחב',
+        () => stepWidth(d), { hint: `${curW}px` });
+      hints.push(it.querySelector('.si-hint'));
+      return it;
+    })),
     sheetItem('↓', 'מיון עולה', () => sortBy(true, s.close),
       { hint: ctx.sort.col === col.key && ctx.sort.asc ? 'פעיל' : '' }),
     sheetItem('↑', 'מיון יורד', () => sortBy(false, s.close),
@@ -1043,10 +1060,12 @@ function buildTable(rows, cols, part) {
   const hasActions = part !== 'frozen';
 
   // fixed layout so explicit column widths are honoured exactly
-  const colGroup = h('colgroup', {},
-    ...(hasCheckbox ? [h('col', { style: `width:${CHECKBOX_COL_W()}px` })] : []),
-    ...dataCols.map(c => h('col', { style: `width:${width(c)}px` })),
-    ...(hasActions ? [h('col', { style: `width:${isPhone() ? 150 : 214}px` })] : [])); // actions: 5 icons + end padding
+  const colWidths = [
+    ...(hasCheckbox ? [CHECKBOX_COL_W()] : []),
+    ...dataCols.map(width),
+    ...(hasActions ? [isPhone() ? 150 : 214] : []), // actions: 5 icons + end padding
+  ];
+  const colGroup = h('colgroup', {}, ...colWidths.map(w => h('col', { style: `width:${w}px` })));
 
   const allSelected = rows.length > 0 && rows.every(l => ctx.selected.has(l.id));
   const selectAllCb = h('input', {
@@ -1100,6 +1119,14 @@ function buildTable(rows, cols, part) {
 
   const tbody = h('tbody', {}, ...rows.map(lead => buildRow(lead, cols, part)));
   const table = h('table', { class: `board grid pane-${part}` }, colGroup, thead, tbody);
+  // `table-layout: fixed` only takes effect on a table with a DEFINITE width —
+  // with `width: auto` the browser falls back to automatic layout and the
+  // colgroup becomes a suggestion that content overrides. That is why widening
+  // a column on a phone changed the stored number and nothing on screen, and
+  // why the pinned header kept drifting off its columns: the two tables sat in
+  // differently sized boxes and auto layout resolved each one its own way.
+  // Desktop already has a definite width (100%); phones get an explicit one.
+  if (isPhone()) table.style.width = `${colWidths.reduce((a, b) => a + b, 0)}px`;
   attachLongPress(table);
   return table;
 }

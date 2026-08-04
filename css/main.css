@@ -895,7 +895,7 @@ main#view > h2::after {
   .split-frozen {
     flex: none; position: relative; z-index: 2;
     box-shadow: 6px 0 6px -6px rgba(0, 0, 0, .6);
-    /* the pane is clipped, not re-laid out, when it shrinks — see .name-shrunk */
+    /* the pane is clipped, not re-laid out, when it shrinks — see attachNameShrink */
     overflow: hidden;
   }
   /* overflow-y must be explicit: with only overflow-x set it would compute to
