@@ -332,7 +332,12 @@ table.board.grid th .th-label {
   position: absolute; inset-block: 0; inset-inline-start: 0; width: 8px;
   cursor: col-resize; touch-action: none; z-index: 6;
 }
-.col-resize:hover, .col-resize.dragging { background: var(--brand); opacity: .55; }
+/* :hover sticks on touch devices — it stays on the last-tapped element until
+   something else is tapped — so this must not apply where there is no pointer */
+@media (hover: hover) {
+  .col-resize:hover { background: var(--brand); opacity: .55; }
+}
+.col-resize.dragging { background: var(--brand); opacity: .55; }
 
 /* checkbox + name columns stay pinned to the (RTL) right edge while the wide
    board scrolls horizontally, so the lead a field belongs to is always visible.
@@ -890,6 +895,8 @@ main#view > h2::after {
   .split-frozen {
     flex: none; position: relative; z-index: 2;
     box-shadow: 6px 0 6px -6px rgba(0, 0, 0, .6);
+    /* the pane is clipped, not re-laid out, when it shrinks — see .name-shrunk */
+    overflow: hidden;
   }
   /* overflow-y must be explicit: with only overflow-x set it would compute to
      auto, giving this pane its own vertical scroller and desyncing the rows.
@@ -910,7 +917,16 @@ main#view > h2::after {
      would drift out of alignment with the other, and the scrolling pane's own
      horizontal scroll container would swallow `sticky` anyway. A fixed clone
      (attachStickyHeader) provides the pinned row instead. */
-  .board-split thead th { position: static; height: 34px; }
+  /* `relative`, not `static`: the grip inside is absolutely positioned, and a
+     static header hands it .split-frozen as its containing block — which
+     stretched it into a full-height bar down the edge of the board. (It must
+     still not be `sticky`; see above.) */
+  .board-split thead th { position: relative; height: 34px; }
+
+  /* No drag grip on phones. It is 22px of invisible touch target sitting on the
+     header's edge, so it swallowed taps meant for the header itself — and width
+     is set from the column menu here anyway. */
+  .board-split .col-resize { display: none; }
 
   /* the pinned copy of the header row */
   /* .board-split sets a 120px bottom pad further down this file; the clone
@@ -972,8 +988,13 @@ main#view > h2::after {
   .row-actions { gap: 1px; }
   .row-actions .icon-btn { padding: 3px; font-size: 15px; }
 
-  /* touch-resizable columns: a wide invisible grip so a finger can grab it */
-  .board-split .col-resize { width: 22px; touch-action: none; }
+  /* The pinned name column gives up most of its width while the board is
+     scrolled sideways, so the fields being read get the screen. It grows back
+     the moment the board returns to the start. Clipped rather than re-laid out:
+     changing the column width would reflow both panes on every scroll. */
+  .split-frozen { transition: max-width .22s ease; }
+  .board-split.name-shrunk .split-frozen { max-width: 20vw; }
+  @media (prefers-reduced-motion: reduce) { .split-frozen { transition: none; } }
 
   /* Clear space under the board so the last row is never hidden behind the
      bottom tab bar (Monday leaves a comparable gap). */

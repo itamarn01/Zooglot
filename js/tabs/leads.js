@@ -734,6 +734,7 @@ function buildBoard(rows) {
   };
   boardRef = { cols, tables: [[frozen, 'frozen'], [rest, 'rest']], sync: syncRows };
   boardRef.sticky = attachStickyHeader(wrap, frozen, rest);
+  attachNameShrink(wrap, wrap.querySelector('.split-rest'));
   requestAnimationFrame(() => syncRows(0));
   // fonts land after first paint and change text metrics → re-sync once more
   document.fonts?.ready?.then(() => requestAnimationFrame(() => syncRows(0)));
@@ -793,6 +794,16 @@ function attachStickyHeader(wrap, frozenTable, restTable) {
     restClone.style.width = `${restTable.offsetWidth}px`;
   };
 
+  // Mirror the horizontal position with a transform rather than by copying
+  // scrollLeft. Setting scrollLeft on a box that was display:none a moment
+  // earlier does not stick — the browser has no layout to scroll yet, so it
+  // clamps to 0 and the header snapped back to the first columns every time it
+  // appeared. A transform needs no scrollport and no sign-juggling in RTL:
+  // content drawn at -scrollLeft is exactly what the real pane shows.
+  const mirror = () => {
+    restClone.style.transform = `translateX(${-restPane.scrollLeft}px)`;
+  };
+
   const update = () => {
     if (!wrap.isConnected) return destroy();
     const r = wrap.getBoundingClientRect();
@@ -806,7 +817,7 @@ function attachStickyHeader(wrap, frozenTable, restTable) {
     clone.style.left = `${r.left}px`;
     clone.style.width = `${r.width}px`;
     if (!headH) headH = clone.offsetHeight;
-    restBox.scrollLeft = restPane.scrollLeft;
+    mirror();
   };
 
   let queued = false;
@@ -830,7 +841,7 @@ function attachStickyHeader(wrap, frozenTable, restTable) {
     update();
   };
 
-  const onRestScroll = () => { restBox.scrollLeft = restPane.scrollLeft; };
+  const onRestScroll = mirror;
   window.addEventListener('scroll', onScroll, { passive: true });
   window.addEventListener('resize', onScroll);
   restPane.addEventListener('scroll', onRestScroll, { passive: true });
@@ -871,6 +882,44 @@ function attachPinchZoom(el) {
     }
   }, { passive: true });
   el.addEventListener('touchend', () => { startDist = 0; }, { passive: true });
+}
+
+// While the board is scrolled sideways the name column is not what you are
+// reading, so it gives up most of its width and takes it back on the way home.
+//
+// Also: a scroll gesture that ends on a cell used to fire that cell's tap, so
+// scrolling to look at a field could open a card instead. Any scroll marks the
+// board as moving for a moment, and taps are ignored until it settles.
+let lastScrollAt = 0;
+const markScrolling = () => { lastScrollAt = Date.now(); };
+const isScrolling = () => Date.now() - lastScrollAt < 220;
+
+function attachNameShrink(wrap, restPane) {
+  if (!restPane) return;
+  let shrunk = false;
+  const onScroll = () => {
+    markScrolling();
+    // Remember where the board is scrolled to. draw() rebuilds the table from
+    // scratch, which would otherwise snap back to the first column — so
+    // resizing a column you had scrolled to looked like it did nothing, because
+    // the board jumped away from it.
+    ctx.hScroll = restPane.scrollLeft;
+    // |scrollLeft| because RTL counts away from the start with negative values
+    const away = Math.abs(restPane.scrollLeft) > 12;
+    if (away === shrunk) return;
+    shrunk = away;
+    wrap.classList.toggle('name-shrunk', shrunk);
+    stickyHead?.el?.classList.toggle('name-shrunk', shrunk);
+  };
+  restPane.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('scroll', markScrolling, { passive: true });
+
+  if (ctx.hScroll) {
+    requestAnimationFrame(() => {
+      restPane.scrollLeft = ctx.hScroll;
+      onScroll();
+    });
+  }
 }
 
 // Column menu (phones). Everything a mouse gets from hovering, dragging or
@@ -1170,7 +1219,11 @@ function buildCell(lead, col) {
   if (col.key === 'name' && isPhone()) {
     td.append(h('button', {
       class: 'name-open', title: 'פתיחת כרטיס הליד',
-      onclick: (e) => { e.stopPropagation(); openUpdatesDrawer(lead, 'card'); },
+      onclick: (e) => {
+        e.stopPropagation();
+        if (isScrolling()) return; // the tap was the end of a scroll, not a choice
+        openUpdatesDrawer(lead, 'card');
+      },
     }, lead.name || '—'));
     return td;
   }
@@ -1192,7 +1245,11 @@ function buildCell(lead, col) {
   if (isPhone() && CELL_SHEET_TYPES.has(col.type)) {
     td.append(h('button', {
       class: 'cell-tap', title: col.label,
-      onclick: (e) => { e.stopPropagation(); openCellSheet(lead, col, save, td); },
+      onclick: (e) => {
+        e.stopPropagation();
+        if (isScrolling()) return; // same guard as the name: don't edit on a scroll
+        openCellSheet(lead, col, save, td);
+      },
     }, cellDisplay(lead, col)));
     return td;
   }
