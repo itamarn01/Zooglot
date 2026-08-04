@@ -906,18 +906,16 @@ let lastScrollAt = 0;
 const markScrolling = () => { lastScrollAt = Date.now(); };
 const isScrolling = () => Date.now() - lastScrollAt < 220;
 
-// The width is a pure function of how far the board is scrolled sideways, so
-// the column shrinks and grows *with the finger* instead of snapping between
-// two states — and, because the mapping runs in both directions, coming back
-// restores it exactly. A class toggle plus a CSS transition (what this used to
-// be) can only ever play one fixed-length animation on crossing a threshold,
-// and it leaves the board in whichever state it last latched into.
-const SHRINK_SLACK = 10;  // px of scroll to ignore, so a nudge doesn't move it
-// Spread over roughly two columns' worth of scrolling: short ranges finish
-// while the finger is still moving, which reads as a jump however smooth the
-// curve is. The column should still be giving up width when you stop.
-const SHRINK_RANGE = 320; // px of scroll that takes the column all the way in
-const smoothstep = (p) => p * p * (3 - 2 * p);
+// The name column answers the DIRECTION of the gesture, not the position of the
+// scroll. Push away from it and it gives up width at the speed you are moving —
+// a flick takes it in at once, a slow drag eases it in. Move back towards it and
+// it is full width again immediately. (A position-based mapping cannot do the
+// second half: coming back would only ever return width as slowly as it was
+// taken, which feels like the board is negotiating with you.)
+const SHRINK_SLACK = 10;   // px of scroll to ignore, so a nudge doesn't move it
+const SHRINK_RATE = 0.65;  // px of width surrendered per px of sideways scroll
+const REVERSE_EPS = 4;     // px backwards that count as "coming back", not jitter
+const SHRINK_MIN_VW = 0.15;
 
 let nameShrink = null;
 
@@ -935,7 +933,7 @@ function attachNameShrink(wrap, restPane) {
     // would fold in borders and drift a pixel on every re-measure.
     fullW = parseInt(table.style.width, 10) || table.offsetWidth || frozen.offsetWidth || 0;
     const vw = window.innerWidth || document.documentElement?.clientWidth || 390;
-    minW = Math.max(60, Math.round(Math.min(fullW, vw * 0.25)));
+    minW = Math.max(52, Math.round(Math.min(fullW, vw * SHRINK_MIN_VW)));
   };
 
   let applied = -1;
@@ -952,17 +950,34 @@ function attachNameShrink(wrap, restPane) {
     if (r) r.style.transform = `translateX(${minW - w}px)`;
   };
 
+  // |scrollLeft| because RTL counts away from the start with negative values
+  const pos = () => Math.abs(restPane.scrollLeft);
+  let cur = 0, last = 0;
+
   const paint = () => {
     if (!fullW) measure();
     if (!fullW) return;
-    // |scrollLeft| because RTL counts away from the start with negative values
-    const p = Math.min(1, Math.max(0,
-      (Math.abs(restPane.scrollLeft) - SHRINK_SLACK) / SHRINK_RANGE));
-    const w = Math.round(fullW - (fullW - minW) * smoothstep(p));
+    if (!cur) cur = fullW;
+    const now = pos();
+    const d = now - last;
+    last = now;
+
+    // Growing back is a jump, so it gets the easing; shrinking is the finger's
+    // own movement and must not be smoothed, or it lags behind the columns it
+    // is making room for.
+    let grow = false;
+    if (now <= SHRINK_SLACK) { grow = cur < fullW; cur = fullW; }
+    else if (d > 0) cur = Math.max(minW, cur - d * SHRINK_RATE);
+    else if (d < -REVERSE_EPS) { grow = cur < fullW; cur = fullW; }
+
+    const w = Math.round(cur);
     if (w === applied) return;
     applied = w;
-    applyTo(wrap, w);
-    if (stickyHead?.el) applyTo(stickyHead.el, w);   // the pinned header follows
+    for (const root of [wrap, stickyHead?.el]) {   // the pinned header follows
+      if (!root) continue;
+      root.classList.toggle('name-grow', grow);
+      applyTo(root, w);
+    }
   };
 
   // Once the board stops moving, hand the name its real width so the text

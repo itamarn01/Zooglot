@@ -947,6 +947,12 @@ main#view > h2::after {
      is set from the column menu here anyway. */
   .board-split .col-resize { display: none; }
 
+  /* A native checkbox is sized by the platform, and iOS draws a bigger one than
+     the cell's padding left room for — so the circle came out shaved. Size it
+     ourselves and let it have the whole cell. */
+  .board-split .checkbox-col { padding: 0; }
+  .board-split .checkbox-col input { width: 15px; height: 15px; margin: 0; }
+
   /* the pinned copy of the header row */
   /* .board-split sets a 120px bottom pad further down this file; the clone
      carries that class for its sizing vars, so it needs the higher specificity
@@ -1021,6 +1027,17 @@ main#view > h2::after {
   .updates-col .updates-inline { padding: 2px; font-size: calc(var(--board-fs, 12.5px) + 2px); }
   .row-actions { gap: 1px; }
   .row-actions .icon-btn { padding: 3px; font-size: 15px; }
+
+  /* Only the way BACK is animated. Shrinking is the finger's own movement —
+     smoothing it would leave the name column trailing the columns it is making
+     room for — but growing back is a jump from wherever the gesture left it, so
+     it gets iOS's own deceleration curve. Both panes must ride the same curve
+     or the seam between them opens mid-flight. */
+  .board-split.name-grow .split-frozen { transition: width .26s cubic-bezier(.32, .72, 0, 1); }
+  .board-split.name-grow .split-rest { transition: transform .26s cubic-bezier(.32, .72, 0, 1); }
+  @media (prefers-reduced-motion: reduce) {
+    .board-split.name-grow .split-frozen, .board-split.name-grow .split-rest { transition: none; }
+  }
 
   /* The pinned name column gives up most of its width while the board is
      scrolled sideways, so the fields being read get the screen — and takes it
