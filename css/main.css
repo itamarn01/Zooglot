@@ -989,12 +989,11 @@ main#view > h2::after {
   .row-actions .icon-btn { padding: 3px; font-size: 15px; }
 
   /* The pinned name column gives up most of its width while the board is
-     scrolled sideways, so the fields being read get the screen. It grows back
-     the moment the board returns to the start. Clipped rather than re-laid out:
-     changing the column width would reflow both panes on every scroll. */
-  .split-frozen { transition: max-width .22s ease; }
-  .board-split.name-shrunk .split-frozen { max-width: 20vw; }
-  @media (prefers-reduced-motion: reduce) { .split-frozen { transition: none; } }
+     scrolled sideways, so the fields being read get the screen — and takes it
+     back on the way home. Its width is written per frame from the pane's own
+     scroll offset (attachNameShrink), which is why there is no transition
+     here: a transition would chase the finger a fifth of a second behind it,
+     and it is the direct mapping that makes the column come back at all. */
 
   /* Clear space under the board so the last row is never hidden behind the
      bottom tab bar (Monday leaves a comparable gap). */

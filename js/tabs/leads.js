@@ -233,8 +233,6 @@ function columns() {
     // scrolling column, so it scrolls away while the name stays pinned.
     { key: '__updates', label: 'Updates', type: 'updates', width: 84 },
     { key: 'contact_name', label: 'איש קשר', type: 'text' },
-    { key: 'groom_name', label: 'שם החתן', type: 'text' },
-    { key: 'bride_name', label: 'שם הכלה', type: 'text' },
     { key: 'contacts', label: 'אנשי קשר נוספים', type: 'contacts' },
     { key: 'owner_id', label: 'בטיפול', type: 'select', options: team.map(t => [t.id, t.full_name || t.email]) },
     { key: 'relation', label: 'קרבה', type: 'select', options: RELATIONS.map(r => [r, r]), chip: 'relation' },
@@ -244,6 +242,11 @@ function columns() {
     { key: 'phone1', label: 'טלפון 1', type: 'tel' },
     { key: 'phone2', label: 'טלפון 2', type: 'tel' },
     { key: 'email', label: 'מייל', type: 'email' },
+    // the couple's names sit with the ID and address: together they are the
+    // personal details the contract is filled from, so they are read and typed
+    // as one block rather than scattered across the row
+    { key: 'groom_name', label: 'שם החתן', type: 'text' },
+    { key: 'bride_name', label: 'שם הכלה', type: 'text' },
     { key: 'id_number', label: 'ת"ז', type: 'text' },
     { key: 'address', label: 'כתובת', type: 'text' },
     { key: 'proposed_price', label: 'מחיר שהוצע', type: 'number' },
@@ -817,6 +820,10 @@ function attachStickyHeader(wrap, frozenTable, restTable) {
     clone.style.left = `${r.left}px`;
     clone.style.width = `${r.width}px`;
     if (!headH) headH = clone.offsetHeight;
+    // the name column may have been narrowed by the sideways scroll while the
+    // clone was hidden — copy its current width rather than letting the header
+    // reappear at full width over a shrunken column
+    clone.querySelector('.split-frozen').style.width = frozenTable.parentElement.style.width;
     mirror();
   };
 
@@ -894,9 +901,56 @@ let lastScrollAt = 0;
 const markScrolling = () => { lastScrollAt = Date.now(); };
 const isScrolling = () => Date.now() - lastScrollAt < 220;
 
+// The width is a pure function of how far the board is scrolled sideways, so
+// the column shrinks and grows *with the finger* instead of snapping between
+// two states — and, because the mapping runs in both directions, coming back
+// restores it exactly. A class toggle plus a CSS transition (what this used to
+// be) can only ever play one fixed-length animation on crossing a threshold,
+// and it leaves the board in whichever state it last latched into.
+const SHRINK_SLACK = 8;   // px of scroll to ignore, so a nudge doesn't move it
+const SHRINK_RANGE = 150; // px of scroll that takes the column all the way in
+const smoothstep = (p) => p * p * (3 - 2 * p);
+
+let nameShrink = null;
+
 function attachNameShrink(wrap, restPane) {
-  if (!restPane) return;
-  let shrunk = false;
+  nameShrink?.destroy();          // every draw() builds a new board; drop the old
+  if (!restPane) return null;
+  const frozen = wrap.querySelector('.split-frozen');
+  const table = frozen?.querySelector('table');
+  if (!frozen || !table) return null;
+
+  let fullW = 0, minW = 0;
+  const measure = () => {
+    fullW = table.offsetWidth || frozen.offsetWidth || 0;
+    // Pin the table at its natural width so narrowing the pane CLIPS it. Left
+    // free, a fixed-layout table inside a narrowed box redistributes its
+    // columns proportionally — the checkbox would shrink along with the name,
+    // and every scroll frame would re-lay out the whole table.
+    if (fullW) table.style.width = `${fullW}px`;
+    const vw = window.innerWidth || document.documentElement?.clientWidth || 390;
+    minW = Math.max(60, Math.round(Math.min(fullW, vw * 0.18)));
+  };
+
+  let applied = -1;
+  const paint = () => {
+    if (!fullW) measure();
+    if (!fullW) return;
+    // |scrollLeft| because RTL counts away from the start with negative values
+    const p = Math.min(1, Math.max(0,
+      (Math.abs(restPane.scrollLeft) - SHRINK_SLACK) / SHRINK_RANGE));
+    const w = Math.round(fullW - (fullW - minW) * smoothstep(p));
+    if (w === applied) return;
+    applied = w;
+    frozen.style.width = `${w}px`;
+    // the pinned header clone is a separate element, so it has to follow
+    const cloneFrozen = stickyHead?.el?.querySelector('.split-frozen');
+    if (cloneFrozen) cloneFrozen.style.width = `${w}px`;
+  };
+
+  // One paint per frame at most: iOS delivers scroll events faster than it
+  // paints, and each one writes a width — i.e. a layout — if left unthrottled.
+  let queued = false;
   const onScroll = () => {
     markScrolling();
     // Remember where the board is scrolled to. draw() rebuilds the table from
@@ -904,22 +958,30 @@ function attachNameShrink(wrap, restPane) {
     // resizing a column you had scrolled to looked like it did nothing, because
     // the board jumped away from it.
     ctx.hScroll = restPane.scrollLeft;
-    // |scrollLeft| because RTL counts away from the start with negative values
-    const away = Math.abs(restPane.scrollLeft) > 12;
-    if (away === shrunk) return;
-    shrunk = away;
-    wrap.classList.toggle('name-shrunk', shrunk);
-    stickyHead?.el?.classList.toggle('name-shrunk', shrunk);
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; paint(); });
   };
+
+  const onResize = () => { measure(); applied = -1; paint(); };
   restPane.addEventListener('scroll', onScroll, { passive: true });
   window.addEventListener('scroll', markScrolling, { passive: true });
+  window.addEventListener('resize', onResize);
 
-  if (ctx.hScroll) {
-    requestAnimationFrame(() => {
-      restPane.scrollLeft = ctx.hScroll;
-      onScroll();
-    });
-  }
+  const destroy = () => {
+    restPane.removeEventListener('scroll', onScroll);
+    window.removeEventListener('scroll', markScrolling);
+    window.removeEventListener('resize', onResize);
+    if (nameShrink?.destroy === destroy) nameShrink = null;
+  };
+
+  requestAnimationFrame(() => {
+    measure();
+    if (ctx.hScroll) restPane.scrollLeft = ctx.hScroll;
+    paint();
+  });
+  nameShrink = { paint, measure, destroy };
+  return nameShrink;
 }
 
 // Column menu (phones). Everything a mouse gets from hovering, dragging or
