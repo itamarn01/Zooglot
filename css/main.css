@@ -891,18 +891,37 @@ main#view > h2::after {
   .board-split.ts-s { --row-h: 30px; --board-fs: 10.5px; --board-hfs: 9px; }
   .board-split.ts-m { --row-h: 38px; --board-fs: 12.5px; --board-hfs: 11px; }
   .board-split.ts-l { --row-h: 48px; --board-fs: 15px; --board-hfs: 13px; }
-  .board-split { display: flex; align-items: flex-start; overflow: visible; }
+  /* `clip`, not `hidden`: the scrolling pane is translated sideways as the name
+     column narrows, and its far end has to be cut off at the screen edge rather
+     than turn the board into a second scroller. (`hidden` would also make this
+     a scroll container and give the wrap its own vertical scrollbar.) */
+  .board-split { display: flex; align-items: flex-start; position: relative; overflow-x: clip; }
+  /* Absolute, so its width is nobody else's business.
+     While it was a flex item, narrowing it widened the scrolling pane on the
+     same frame — and a scroller whose width changes mid-gesture has its scroll
+     offset re-anchored by the browser. That fought the finger, which is the
+     "bouncing" you feel at the start of a sideways scroll, exactly where the
+     name column is still resizing. Out of flow, the scroller's geometry is
+     constant and only paint changes. */
   .split-frozen {
-    flex: none; position: relative; z-index: 2;
-    box-shadow: 6px 0 6px -6px rgba(0, 0, 0, .6);
-    /* the pane is clipped, not re-laid out, when it shrinks — see attachNameShrink */
+    position: absolute; inset-inline-start: 0; top: 0; z-index: 2;
     overflow: hidden;
+    /* the name column is its own pane, not the first cell of the scrolling one:
+       it needs the same rule between it and its neighbour that every other
+       column has, and the shadow must fall ONTO the scrolling pane (leftwards
+       in RTL) — it used to point off the edge of the screen */
+    border-inline-end: 1px solid var(--line);
+    box-shadow: -6px 0 8px -6px rgba(0, 0, 0, .55);
+    /* it overlaps the scrolling pane now, so it cannot be see-through —
+       .table-wrap's own surface is what the rows sit on */
+    background: var(--surface);
   }
-  /* overflow-y must be explicit: with only overflow-x set it would compute to
-     auto, giving this pane its own vertical scroller and desyncing the rows.
-     `hidden` on an auto-height box clips nothing — the page still scrolls both. */
+  /* Width is fixed at its widest (the name column fully shrunk) and the pane is
+     slid sideways instead, so scrolling geometry never moves. overflow-y must be
+     explicit: with only overflow-x set it would compute to auto, giving this
+     pane its own vertical scroller and desyncing the rows. */
   .split-rest {
-    flex: 1; min-width: 0;
+    flex: none; width: calc(100% - var(--frozen-min, 25vw)); margin-inline-start: auto;
     overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
   }
   .board-split table.board { min-width: 0; width: auto; }
@@ -940,7 +959,7 @@ main#view > h2::after {
     box-shadow: 0 6px 10px -6px rgba(0, 0, 0, .7);
   }
   .board-head-clone .split-rest { overflow: hidden; }
-  .board-head-clone .split-frozen { box-shadow: 6px 0 6px -6px rgba(0, 0, 0, .6); }
+  .board-head-clone .split-frozen { background: var(--surface-2); }
   .board-head-clone .col-resize { display: none; }
 
   /* cells are read-only on phones; a tap opens the editor sheet */
@@ -954,7 +973,16 @@ main#view > h2::after {
   }
   .cell-tap:active { background: rgba(255, 255, 255, .06); }
   .cell-tap .cell-empty { color: var(--text-dim); opacity: .5; }
-  .cell-tap .chip { font-size: calc(var(--board-fs, 12.5px) - 1px); }
+  /* A row is a fixed height and the cell clips to it, so a chip that carries its
+     desktop padding gets sliced through the middle of its own text at the
+     smaller board sizes. The padding is what gives way, not the label. */
+  .cell-tap .chip {
+    font-size: calc(var(--board-fs, 12.5px) - 1px);
+    padding: 1px 7px; line-height: 1.35;
+    max-height: 100%; box-sizing: border-box;
+    display: inline-flex; align-items: center;
+  }
+  .board-split td .cell-tap { padding-block: 0; }
   .tel-cell-ro { display: inline-flex; align-items: center; gap: 4px; overflow: hidden; }
   .tel-cell-ro .tel-flag-img { width: 14px; height: auto; flex: none; }
 
@@ -973,6 +1001,12 @@ main#view > h2::after {
     cursor: pointer;
   }
   .name-open:active { color: var(--brand); }
+  /* The name re-fits the width the column ACTUALLY has right now. The shrink
+     clips the pane rather than re-laying out the table, so without this the
+     text keeps the ellipsis it was given at some other width — it looks out of
+     room when there is plenty. Set once the scroll settles, never mid-gesture:
+     it is a style recalc on every visible row. */
+  .board-split .name-open { max-width: var(--name-vis, none); }
   table.board th { font-size: var(--board-hfs, 11px); padding: 6px 5px; }
   table.board.grid th { padding-inline-end: 9px; }
   table.board td { padding: 1px 3px; font-size: var(--board-fs, 12.5px); }

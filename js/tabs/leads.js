@@ -696,6 +696,7 @@ function buildBoard(rows) {
   const cols = columns();
   if (!isPhone()) {
     stickyHead?.destroy(); // desktop pins its header with plain CSS
+    nameShrink?.destroy(); // and has room for the name column at full width
     const table = buildTable(rows, cols, 'all');
     boardRef = { cols, tables: [[table, 'all']], sync: null };
     return h('div', { class: 'table-wrap' }, table);
@@ -825,9 +826,9 @@ function attachStickyHeader(wrap, frozenTable, restTable) {
     clone.style.width = `${r.width}px`;
     if (!headH) headH = clone.offsetHeight;
     // the name column may have been narrowed by the sideways scroll while the
-    // clone was hidden — copy its current width rather than letting the header
-    // reappear at full width over a shrunken column
-    clone.querySelector('.split-frozen').style.width = frozenTable.parentElement.style.width;
+    // clone was hidden — adopt its current position rather than letting the
+    // header reappear at full width over a shrunken column
+    nameShrink?.sync();
     mirror();
   };
 
@@ -938,6 +939,19 @@ function attachNameShrink(wrap, restPane) {
   };
 
   let applied = -1;
+  // Both panes move together: the name pane gives up width at its inline-end,
+  // and the scrolling pane — whose own box never changes size — is slid the
+  // same distance to take the space. Sliding rather than resizing is the whole
+  // point: resizing a scroller mid-gesture makes the browser re-anchor its
+  // scroll offset, which is what fought the finger.
+  const applyTo = (root, w) => {
+    root.style.setProperty('--frozen-min', `${minW}px`);
+    const f = root.querySelector('.split-frozen');
+    const r = root.querySelector('.split-rest');
+    if (f) f.style.width = `${w}px`;
+    if (r) r.style.transform = `translateX(${minW - w}px)`;
+  };
+
   const paint = () => {
     if (!fullW) measure();
     if (!fullW) return;
@@ -947,10 +961,21 @@ function attachNameShrink(wrap, restPane) {
     const w = Math.round(fullW - (fullW - minW) * smoothstep(p));
     if (w === applied) return;
     applied = w;
-    frozen.style.width = `${w}px`;
-    // the pinned header clone is a separate element, so it has to follow
-    const cloneFrozen = stickyHead?.el?.querySelector('.split-frozen');
-    if (cloneFrozen) cloneFrozen.style.width = `${w}px`;
+    applyTo(wrap, w);
+    if (stickyHead?.el) applyTo(stickyHead.el, w);   // the pinned header follows
+  };
+
+  // Once the board stops moving, hand the name its real width so the text
+  // re-fits: the shrink only clips, so the ellipsis it is wearing was decided
+  // at whatever width it last laid out at. Deliberately not per frame — this
+  // restyles every visible row.
+  let settleTimer = 0;
+  const settle = () => {
+    const cbW = parseInt(frozen.querySelector('colgroup col')?.style.width, 10) || 0;
+    const vis = Math.max(24, applied - cbW - 10);   // 10px: the cell's own padding
+    for (const root of [wrap, stickyHead?.el]) {
+      root?.style.setProperty('--name-vis', applied >= fullW ? 'none' : `${vis}px`);
+    }
   };
 
   // One paint per frame at most: iOS delivers scroll events faster than it
@@ -963,29 +988,43 @@ function attachNameShrink(wrap, restPane) {
     // resizing a column you had scrolled to looked like it did nothing, because
     // the board jumped away from it.
     ctx.hScroll = restPane.scrollLeft;
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(settle, 140);
     if (queued) return;
     queued = true;
     requestAnimationFrame(() => { queued = false; paint(); });
   };
 
-  const onResize = () => { measure(); applied = -1; paint(); };
+  const onResize = () => { measure(); applied = -1; paint(); settle(); };
   restPane.addEventListener('scroll', onScroll, { passive: true });
   window.addEventListener('scroll', markScrolling, { passive: true });
   window.addEventListener('resize', onResize);
 
   const destroy = () => {
+    clearTimeout(settleTimer);
     restPane.removeEventListener('scroll', onScroll);
     window.removeEventListener('scroll', markScrolling);
     window.removeEventListener('resize', onResize);
     if (nameShrink?.destroy === destroy) nameShrink = null;
   };
 
+  // Synchronously, before the board is on screen: the scrolling pane is laid
+  // out for the shrunken name column and has to be slid into place, or the
+  // first frame shows it sitting under the name pane.
+  measure();
+  paint();
+  settle();
   requestAnimationFrame(() => {
-    measure();
     if (ctx.hScroll) restPane.scrollLeft = ctx.hScroll;
     paint();
+    settle();
   });
-  nameShrink = { paint, measure, destroy };
+  // `sync` lets the pinned header adopt the current position the moment it
+  // appears, rather than flashing at full width over a shrunken column
+  nameShrink = {
+    paint, measure, destroy,
+    sync: () => { if (stickyHead?.el && applied >= 0) applyTo(stickyHead.el, applied); },
+  };
   return nameShrink;
 }
 
