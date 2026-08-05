@@ -13,9 +13,15 @@ const MIN_CHARS = 2;
  * @param input     an existing <input> to attach to
  * @param endpoint  full URL of the suggest API (…/api/places or …/api/public/places)
  * @param onPick    optional (label) => void, fired when a suggestion is chosen
+ * @param opts.container
+ *   When given, the results are rendered INSIDE it, in normal flow, directly
+ *   under the field — the way a maps picker does it. A floating layer is the
+ *   right answer next to a grid cell, but inside a bottom sheet with the
+ *   keyboard up there is no "floating" space left: the sheet is the screen.
  */
-export function attachPlaceAutocomplete(input, endpoint, onPick) {
+export function attachPlaceAutocomplete(input, endpoint, onPick, { container = null } = {}) {
   ensureStyles(); // three separate pages use this; none of them owns the CSS
+  const inline = !!container;
   let list = null;
   let timer = null;
   let seq = 0;           // guards against a slow response overwriting a newer one
@@ -36,7 +42,7 @@ export function attachPlaceAutocomplete(input, endpoint, onPick) {
   };
 
   function place() {
-    if (!list) return;
+    if (!list || inline) return;      // in flow: the layout already placed it
     const r = input.getBoundingClientRect();
     // The keyboard is the thing that decides where this list fits, and on iOS
     // opening it does NOT change window.innerHeight — only the visual viewport
@@ -66,13 +72,16 @@ export function attachPlaceAutocomplete(input, endpoint, onPick) {
     if (!items.length) return close();
     if (!list) {
       list = document.createElement('div');
-      list.className = 'place-list';
-      document.body.append(list);
-      window.addEventListener('scroll', place, true);
-      window.addEventListener('resize', place);
-      // the keyboard opening or closing is a visualViewport event, not a resize
-      vv?.addEventListener('resize', place);
-      vv?.addEventListener('scroll', place);
+      list.className = `place-list${inline ? ' place-inline' : ''}`;
+      if (inline) container.append(list);
+      else {
+        document.body.append(list);
+        window.addEventListener('scroll', place, true);
+        window.addEventListener('resize', place);
+        // the keyboard opening or closing is a visualViewport event, not a resize
+        vv?.addEventListener('resize', place);
+        vv?.addEventListener('scroll', place);
+      }
     }
     list.innerHTML = '';
     items.forEach((it, i) => {
@@ -84,7 +93,20 @@ export function attachPlaceAutocomplete(input, endpoint, onPick) {
       mark.textContent = it.source === 'history' ? '★' : '📍';
       const text = document.createElement('span');
       text.className = 'place-text';
-      text.textContent = it.label;
+      // two lines when the API split the venue from its town, one when it did
+      // not: "חוות רונית" over "כפר סבא" is read at a glance; the same thing as
+      // one comma-run has to be parsed.
+      if (it.title && it.where) {
+        const t = document.createElement('b');
+        t.className = 'place-title';
+        t.textContent = it.title;
+        const w = document.createElement('span');
+        w.className = 'place-where';
+        w.textContent = it.where;
+        text.append(t, w);
+      } else {
+        text.textContent = it.label;
+      }
       row.append(mark, text);
       if (it.source === 'history' && it.used > 1) {
         const n = document.createElement('span');
@@ -184,6 +206,25 @@ const PLACES_CSS = `
 }
 .place-opt:hover, .place-opt.active { background: rgba(135,206,223,.16); }
 .place-mark { flex: none; opacity: .8; font-size: 13px; }
-.place-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.place-text { flex: 1; min-width: 0; overflow: hidden; }
+.place-text, .place-title, .place-where {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.place-title { display: block; font-weight: 600; }
+.place-where { display: block; font-size: 12.5px; opacity: .62; }
 .place-count { flex: none; opacity: .55; font-size: 12px; direction: ltr; }
+
+/* Inside a sheet the list is part of the form, not a layer over it: it sits
+   under the field and takes the room the keyboard leaves, the way a maps
+   picker does. Nothing floats, so nothing can end up behind the keyboard. */
+.place-list.place-inline {
+  position: static; z-index: auto; max-height: none;
+  border: none; border-radius: 0; box-shadow: none; background: none;
+  margin-top: 6px;
+}
+.place-inline .place-opt {
+  border-bottom: 1px solid var(--line, rgba(255,255,255,.12));
+  padding: 12px 4px; min-height: 54px; gap: 10px;
+}
+.place-inline .place-opt:last-child { border-bottom: none; }
 `;

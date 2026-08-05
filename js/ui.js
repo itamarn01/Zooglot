@@ -25,9 +25,36 @@ export function toast(msg, type = 'info') {
   setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .4s'; setTimeout(() => el.remove(), 400); }, 3200);
 }
 
+// Keep a fixed overlay inside the part of the screen the user can actually see.
+//
+// `position: fixed` is laid out against the LAYOUT viewport, and on iOS the
+// keyboard does not shrink that — it only shrinks the visual viewport and
+// slides it. So a bottom sheet stays pinned to the bottom of a screen that is
+// now half keyboard, and its Save button sits behind the keys. Nothing in CSS
+// can see this; visualViewport is the only thing that reports it.
+//
+// Returns a detach function.
+export function fitToViewport(el) {
+  const vv = window.visualViewport;
+  if (!vv) return () => {};
+  const fit = () => {
+    el.style.top = `${vv.offsetTop}px`;
+    el.style.height = `${vv.height}px`;
+    el.style.bottom = 'auto';
+  };
+  fit();
+  vv.addEventListener('resize', fit);
+  vv.addEventListener('scroll', fit);
+  return () => {
+    vv.removeEventListener('resize', fit);
+    vv.removeEventListener('scroll', fit);
+  };
+}
+
 export function modal(title, contentEl, { wide = false, actions = [] } = {}) {
   const backdrop = h('div', { class: 'modal-backdrop' });
-  const close = () => backdrop.remove();
+  const unfit = fitToViewport(backdrop);
+  const close = () => { unfit(); backdrop.remove(); };
   const actionBtns = actions.map(a => {
     const b = h('button', { class: `btn ${a.kind || ''}` }, a.label);
     // Auto spinner + double-click guard for every modal action.
@@ -58,7 +85,11 @@ export function modal(title, contentEl, { wide = false, actions = [] } = {}) {
 // `actions` follows modal()'s shape. Returns { close, box }.
 export function sheet(title, contentEl, { actions = [] } = {}) {
   const backdrop = h('div', { class: 'sheet-backdrop' });
+  // the sheet's whole point is to sit under your thumb; with the keyboard up,
+  // "the bottom of the screen" is behind the keys unless we say otherwise
+  const unfit = fitToViewport(backdrop);
   const close = () => {
+    unfit();
     box.classList.remove('open');
     // let the slide-down finish before the node goes
     setTimeout(() => backdrop.remove(), 180);

@@ -144,7 +144,12 @@ main#view { padding: 20px; max-width: 1500px; margin: 0 auto; }
   display: flex; align-items: flex-end; justify-content: center;
 }
 .sheet {
-  width: min(560px, 100%); max-height: 86vh; overflow-y: auto;
+  /* % of the backdrop, which fitToViewport() sizes to the visible area — vh
+     would still measure the screen the keyboard is covering half of */
+  width: min(560px, 100%); max-height: 94%;
+  /* the BODY scrolls, not the sheet: Save and Cancel are the reason the sheet
+     is open, so they stay put however long the content gets */
+  display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); border-top: 1px solid var(--line);
   border-radius: 18px 18px 0 0;
   padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
@@ -159,13 +164,16 @@ main#view { padding: 20px; max-width: 1500px; margin: 0 auto; }
 }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .sheet-head b { font-size: 16px; }
-.sheet-body { margin-bottom: 14px; }
+.sheet-body { flex: 1; min-height: 0; overflow-y: auto; margin-bottom: 14px; }
+/* the venue field stays put while its suggestions scroll under it, so you can
+   keep typing to narrow the list instead of scrolling back up to the field */
+.sheet-place .sheet-input { position: sticky; top: 0; z-index: 2; }
 /* 16px: anything smaller makes iOS Safari zoom the page on focus */
 .sheet-input {
   width: 100%; max-width: 100%; min-width: 0;
   font-size: 16px; min-height: 50px; padding: 12px 14px;
 }
-.sheet-actions { display: flex; gap: 10px; }
+.sheet-actions { display: flex; gap: 10px; flex: none; }
 .sheet-actions .btn { flex: 1; min-height: 50px; justify-content: center; font-size: 15px; }
 
 /* menu variant */

@@ -1534,13 +1534,17 @@ function openCellSheet(lead, col, save, td) {
       placeholder: col.label,
     });
     if (col.type === 'number') read = () => (editor.value === '' ? null : Number(editor.value));
-    if (col.type === 'place') {
-      attachPlaceAutocomplete(editor, `${API_BASE}/api/places`);
-    }
+  }
+
+  // venue suggestions live INSIDE the sheet, under the field. A floating layer
+  // has nowhere to float once the keyboard is up — the sheet is the screen.
+  const suggestions = col.type === 'place' ? h('div', { class: 'sheet-suggest' }) : null;
+  if (suggestions) {
+    attachPlaceAutocomplete(editor, `${API_BASE}/api/places`, null, { container: suggestions });
   }
 
   const url = String(lead[col.key] ?? '');
-  const s = sheet(col.label, h('div', {}, editor), {
+  const s = sheet(col.label, h('div', { class: suggestions ? 'sheet-place' : '' }, editor, suggestions), {
     actions: [
       { label: 'ביטול', onclick: (close) => close() },
       // a contract link is there to be opened, not only edited
