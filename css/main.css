@@ -905,6 +905,22 @@ main#view > h2::after {
   .board-toolbar .pipeline-tabs { display: flex; }
   .board-toolbar .pipeline-tabs button { flex: 1; padding: 8px 6px; }
   .modal { padding: 16px; }
+
+  /* No zoom when a field is tapped.
+     iOS zooms the whole page in on focus whenever a text control's font is
+     under 16px, and it never zooms back out — you type one field and then have
+     to pinch the page back into place. There is no way to switch that off:
+     `user-scalable=no` has been ignored since iOS 10 (deliberately, it also
+     kills accessibility zoom). 16px on the control itself is the only lever.
+     Selects are exempt — iOS opens a wheel for those and does not zoom. */
+  input:not([type="checkbox"]):not([type="radio"]), textarea { font-size: 16px; }
+  /* …except inside the board itself, where a 16px control would not fit the row.
+     Nothing there is typed into on a phone today — every editable cell opens the
+     sheet — but the rule above outranks the board's own sizing, so say it. */
+  .board-split table.board td input, .board-split table.board td textarea {
+    font-size: var(--board-fs, 12.5px);
+  }
+
   table.board { min-width: 900px; } /* horizontal scroll inside .table-wrap */
 
   /* ---- frozen pane board on phones ----

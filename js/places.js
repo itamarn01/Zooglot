@@ -23,24 +23,39 @@ export function attachPlaceAutocomplete(input, endpoint, onPick) {
   let active = -1;
   let lastQuery = '';
 
+  const vv = window.visualViewport || null;
+
   const close = () => {
     list?.remove();
     list = null;
     active = -1;
     window.removeEventListener('scroll', place, true);
     window.removeEventListener('resize', place);
+    vv?.removeEventListener('resize', place);
+    vv?.removeEventListener('scroll', place);
   };
 
   function place() {
     if (!list) return;
     const r = input.getBoundingClientRect();
-    // flip above the field when there isn't room below (phones, bottom rows)
-    const below = window.innerHeight - r.bottom;
-    const height = Math.min(list.scrollHeight || 260, 260);
+    // The keyboard is the thing that decides where this list fits, and on iOS
+    // opening it does NOT change window.innerHeight — only the visual viewport
+    // shrinks. Measured against the window, a field near the bottom of a sheet
+    // looked like it had 300px of room below it and the list was drawn under
+    // the keyboard, where nothing is visible. visualViewport is what the user
+    // can actually see.
+    const seenTop = vv ? vv.offsetTop : 0;
+    const seenBottom = seenTop + (vv ? vv.height : window.innerHeight);
+    const below = seenBottom - r.bottom;
+    const above = r.top - seenTop;
+    // never taller than the free space on the side it lands, so the last
+    // suggestion is always reachable rather than half off the edge
+    const room = Math.max(below, above) - 12;
+    const height = Math.max(96, Math.min(list.scrollHeight || 260, 260, room));
     list.style.left = `${r.left}px`;
     list.style.width = `${Math.max(r.width, 220)}px`;
-    if (below < height + 8 && r.top > height) {
-      list.style.top = `${r.top - height - 4}px`;
+    if (below < height + 8 && above > below) {
+      list.style.top = `${Math.max(seenTop + 4, r.top - height - 4)}px`;
     } else {
       list.style.top = `${r.bottom + 4}px`;
     }
@@ -55,6 +70,9 @@ export function attachPlaceAutocomplete(input, endpoint, onPick) {
       document.body.append(list);
       window.addEventListener('scroll', place, true);
       window.addEventListener('resize', place);
+      // the keyboard opening or closing is a visualViewport event, not a resize
+      vv?.addEventListener('resize', place);
+      vv?.addEventListener('scroll', place);
     }
     list.innerHTML = '';
     items.forEach((it, i) => {

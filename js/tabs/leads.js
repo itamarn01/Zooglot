@@ -221,7 +221,8 @@ function renderLiveBanner() {
       }),
     }, 'רענון'),
     h('button', { class: 'btn sm', onclick: () => { pendingLive = null; renderLiveBanner(); } }, '✕'));
-  host.querySelector('.board-toolbar')?.after(bar);
+  // inside the rebuilt half, so a redraw can never leave a second copy behind
+  host.querySelector('#leads-body')?.prepend(bar);
 }
 
 // ---------------- columns ----------------
@@ -351,78 +352,90 @@ function exportCsv() {
   toast(`יוצאו ${rows.length} לידים ✓`, 'success');
 }
 
+// ---------------- toolbar ----------------
+// Built ONCE and kept mounted. Searching redraws the board on every keystroke,
+// and the search box used to be rebuilt with it: removing a focused input
+// blurs it, and on iOS a blur closes the keyboard. So every letter shut the
+// keyboard and the programmatic re-focus opened it again — one flicker per
+// letter, with a wait in between. The box now simply never moves; only the
+// parts that actually depend on state are replaced around it.
+function buildToolbar() {
+  const search = h('input', {
+    type: 'search', placeholder: '🔍 חיפוש בכל השדות…', value: ctx.search,
+  });
+  // read the field, not the event: the handler is debounced, and an Event is
+  // only guaranteed to carry its target while it is still being dispatched
+  search.addEventListener('input', debounce(() => {
+    ctx.search = search.value;
+    resetPaging();
+    draw();
+  }, 250));
+  return h('div', { class: 'board-toolbar' },
+    h('div', { class: 'pipeline-tabs' }),
+    search,
+    h('div', { class: 'sort-slot flex', style: 'gap:4px' }),
+    h('div', { class: 'toolbar-actions' }));
+}
+
+function refreshToolbar(bar, counts) {
+  bar.querySelector('.pipeline-tabs').replaceChildren(
+    pipeBtn('open', `צינור ראשי (${counts.open})`),
+    pipeBtn('win', `WIN (${counts.win})`),
+    pipeBtn('lost', `LOST (${counts.lost})`),
+    pipeBtn('all', 'הכל'));
+  bar.querySelector('.sort-slot').replaceChildren(sortControl());
+  bar.querySelector('.toolbar-actions').replaceChildren(...[
+    textSizeControl(),
+    filterControl(),
+    h('button', { class: 'btn sm', onclick: openVoiceModal }, '🎙️ ליד מהקלטה'),
+    h('button', { class: 'btn sm', onclick: openMergePicker }, '🔀 מיזוג כפולים'),
+    h('button', { class: 'btn sm', onclick: exportCsv }, '⬇️ ייצוא לאקסל'),
+    // the wizard defaults to the pipeline currently on screen, so a WON export
+    // lands in WIN and a LOST export in LOST without extra steps
+    h('button', { class: 'btn sm', onclick: () => openImportWizard(() => reload(), ctx.pipeline) }, '⬆️ ייבוא מאקסל'),
+    purgeBtn(counts),
+    h('button', { class: 'btn sm primary', onclick: openNewLead }, '+ ליד חדש'),
+  ].filter(Boolean));
+}
+
 // ---------------- main draw ----------------
 function draw() {
   const host = ctx.view.querySelector('#leads-host') || h('div', { id: 'leads-host' });
   if (!host.parentNode) ctx.view.append(host);
 
-  // preserve focus/cursor on the search box across re-renders (it's rebuilt every draw())
-  const prevSearch = host.querySelector('input[type="search"]');
-  const hadFocus = prevSearch && document.activeElement === prevSearch;
-  const selStart = hadFocus ? prevSearch.selectionStart : null;
-  const selEnd = hadFocus ? prevSearch.selectionEnd : null;
-
-  host.innerHTML = '';
-
   const counts = { open: 0, win: 0, lost: 0 };
   for (const l of ctx.leads) counts[l.sale_status] = (counts[l.sale_status] || 0) + 1;
 
-  const searchInput = h('input', {
-    type: 'search', placeholder: '🔍 חיפוש בכל השדות…', value: ctx.search,
-    oninput: debounce((e) => { ctx.search = e.target.value; resetPaging(); draw(); }, 250),
-  });
-
-  const toolbar = h('div', { class: 'board-toolbar' },
-    h('div', { class: 'pipeline-tabs' },
-      pipeBtn('open', `צינור ראשי (${counts.open})`),
-      pipeBtn('win', `WIN (${counts.win})`),
-      pipeBtn('lost', `LOST (${counts.lost})`),
-      pipeBtn('all', 'הכל')),
-    searchInput,
-    sortControl(),
-    h('div', { class: 'toolbar-actions' },
-      textSizeControl(),
-      filterControl(),
-      h('button', { class: 'btn sm', onclick: openVoiceModal }, '🎙️ ליד מהקלטה'),
-      h('button', { class: 'btn sm', onclick: openMergePicker }, '🔀 מיזוג כפולים'),
-      h('button', { class: 'btn sm', onclick: exportCsv }, '⬇️ ייצוא לאקסל'),
-      // the wizard defaults to the pipeline currently on screen, so a WON export
-      // lands in WIN and a LOST export in LOST without extra steps
-      h('button', { class: 'btn sm', onclick: () => openImportWizard(() => reload(), ctx.pipeline) }, '⬆️ ייבוא מאקסל'),
-      purgeBtn(counts),
-      h('button', { class: 'btn sm primary', onclick: openNewLead }, '+ ליד חדש')),
-  );
-
-  if (hadFocus) {
-    // restore after the new input is in the DOM
-    requestAnimationFrame(() => {
-      searchInput.focus();
-      try { searchInput.setSelectionRange(selStart, selEnd); } catch { /* ignore */ }
-    });
+  let toolbar = host.querySelector('.board-toolbar');
+  if (!toolbar) {
+    toolbar = buildToolbar();
+    host.replaceChildren(toolbar, h('div', { id: 'leads-body' }));
   }
+  refreshToolbar(toolbar, counts);
+  const body = host.querySelector('#leads-body');   // everything below is rebuilt
+  body.innerHTML = '';
 
   const rows = visibleLeads();
   ctx.rows = rows;                       // reused by appendMore, which must not re-sort
   const shown = rows.slice(0, ctx.limit);
-  host.append(toolbar);
 
   const selBar = selectionBar();
-  if (selBar) host.append(selBar);
+  if (selBar) body.append(selBar);
 
   if (pendingLive) renderLiveBanner();
 
   const dupBar = duplicateBanner();
-  if (dupBar) host.append(dupBar);
+  if (dupBar) body.append(dupBar);
 
   if (!rows.length) {
     boardRef = null;
     stickyHead?.destroy();
-    host.append(h('div', { class: 'empty-state' }, h('div', { class: 'big' }, '🎷'), h('p', {}, 'אין לידים בתצוגה הזו')));
+    body.append(h('div', { class: 'empty-state' }, h('div', { class: 'big' }, '🎷'), h('p', {}, 'אין לידים בתצוגה הזו')));
     return;
   }
 
-  host.append(buildBoard(shown));
-  mountSentinel(host);
+  body.append(buildBoard(shown));
+  mountSentinel(body);
 }
 
 // ---------------- incremental paging ----------------
@@ -468,8 +481,8 @@ function appendMore() {
   if (boardRef) appendRows(slice, from);
   else return draw();
 
-  const host = ctx.view.querySelector('#leads-host');
-  if (host) mountSentinel(host);
+  const body = ctx.view.querySelector('#leads-body');
+  if (body) mountSentinel(body);
 }
 
 function appendRows(newRows, fromIndex) {
@@ -604,7 +617,7 @@ function refreshSelectionBar() {
   const next = selectionBar();
   if (existing && next) existing.replaceWith(next);
   else if (existing) existing.remove();
-  else if (next) host.querySelector('.board-toolbar')?.after(next);
+  else if (next) host.querySelector('#leads-body')?.prepend(next);
 }
 
 async function bulkDelete() {
@@ -1546,8 +1559,22 @@ function openCellSheet(lead, col, save, td) {
     ],
   });
 
-  // focus after the sheet has finished rising, or iOS scrolls the page instead
-  setTimeout(() => { editor.focus?.(); }, 220);
+  // Focus NOW, in the same task as the tap that opened the sheet. iOS only
+  // opens the keyboard for a programmatic focus that is still inside the user
+  // gesture — the old setTimeout put the caret in the field but left the
+  // keyboard shut, so filling a cell took a second tap. `preventScroll` is what
+  // the delay was really for: without it iOS scrolls the page to the sheet's
+  // pre-animation position, off the bottom of the screen.
+  //
+  // A <select> is left alone: iOS opens its wheel on a real tap only, and
+  // focusing it just highlights the closed control.
+  if (editor.tagName === 'INPUT') {
+    editor.focus({ preventScroll: true });
+    // caret at the end, so the existing value can be corrected rather than
+    // retyped — Safari puts it at 0 after a programmatic focus
+    const n = editor.value.length;
+    try { editor.setSelectionRange(n, n); } catch { /* number/date inputs refuse */ }
+  }
   return s;
 }
 
