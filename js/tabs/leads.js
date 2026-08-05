@@ -906,15 +906,14 @@ let lastScrollAt = 0;
 const markScrolling = () => { lastScrollAt = Date.now(); };
 const isScrolling = () => Date.now() - lastScrollAt < 220;
 
-// The name column answers the DIRECTION of the gesture, not the position of the
-// scroll. Push away from it and it gives up width at the speed you are moving —
-// a flick takes it in at once, a slow drag eases it in. Move back towards it and
-// it is full width again immediately. (A position-based mapping cannot do the
-// second half: coming back would only ever return width as slowly as it was
-// taken, which feels like the board is negotiating with you.)
+// Pushing away from the name column takes width off it at the speed you are
+// moving — a flick takes it in at once, a slow drag eases it in. It comes back
+// only when you actually arrive back AT the column, not the moment you change
+// direction: reading the far columns often means nudging back a little, and a
+// name column that reopened on every nudge kept stealing the screen back.
 const SHRINK_SLACK = 10;   // px of scroll to ignore, so a nudge doesn't move it
 const SHRINK_RATE = 0.65;  // px of width surrendered per px of sideways scroll
-const REVERSE_EPS = 4;     // px backwards that count as "coming back", not jitter
+const GROW_AT = 70;        // px from the start where the column is "reached"
 const SHRINK_MIN_VW = 0.15;
 
 let nameShrink = null;
@@ -966,9 +965,8 @@ function attachNameShrink(wrap, restPane) {
     // own movement and must not be smoothed, or it lags behind the columns it
     // is making room for.
     let grow = false;
-    if (now <= SHRINK_SLACK) { grow = cur < fullW; cur = fullW; }
-    else if (d > 0) cur = Math.max(minW, cur - d * SHRINK_RATE);
-    else if (d < -REVERSE_EPS) { grow = cur < fullW; cur = fullW; }
+    if (now <= GROW_AT) { grow = cur < fullW; cur = fullW; }
+    else if (d > 0 && now > SHRINK_SLACK) cur = Math.max(minW, cur - d * SHRINK_RATE);
 
     const w = Math.round(cur);
     if (w === applied) return;
@@ -1662,8 +1660,15 @@ function openContactsModal(lead) {
   const idNumber = h('input', { type: 'text', placeholder: 'ת"ז', dir: 'ltr' });
   const address = h('input', { type: 'text', placeholder: 'כתובת' });
 
-  modal(`אנשי קשר — ${lead.name}`, h('div', {},
+  const m = modal(`אנשי קשר — ${lead.name}`, h('div', {},
     list,
+    // the other person on the same wedding usually already exists as their own
+    // lead (they wrote in separately) — bring that record over instead of
+    // retyping it and leaving a stray duplicate on the board
+    h('button', {
+      class: 'btn sm', style: 'margin-top:10px',
+      onclick: () => { m.close(); openAttachContact(lead, () => openContactsModal(lead)); },
+    }, '👥 צירוף ליד קיים כאיש קשר'),
     h('h4', { class: 'mt' }, 'הוספת איש קשר'),
     h('div', { class: 'grid-2' },
       h('label', { class: 'field' }, name), h('label', { class: 'field' }, role),
@@ -1712,15 +1717,60 @@ async function openUpdatesDrawer(lead, initialTab = 'updates') {
   }
 
   // ---- WhatsApp thread: chat bubbles + send box ----
+  // A lead can hold several conversations: once the groom or a parent has been
+  // absorbed into it as a contact (openAttachContact), their messages come with
+  // them and keep their own chat id. Interleaving them into one stream would
+  // read as one person contradicting themselves, so the threads stay separate
+  // and you pick one — the way you pick a chat in WhatsApp itself.
+  let waChat = null;   // selected wa_chat_id; null = the first one
   async function renderWhatsappTab() {
     const dfmt = (d) => new Date(d).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+    // group by chat id, and name each thread after whoever is on the other end
+    const threadsOf = (messages) => {
+      const by = new Map();
+      for (const m of messages) {
+        const key = m.wa_chat_id || '—';
+        if (!by.has(key)) by.set(key, { key, messages: [], name: null, phone: null });
+        const t = by.get(key);
+        t.messages.push(m);
+        if (m.direction === 'in') {
+          t.name = t.name || m.from_name || null;
+          t.phone = t.phone || m.from_number || null;
+        }
+      }
+      // a contact whose phone matches gives the thread a better name than the
+      // WhatsApp push name, which is whatever they called themselves
+      for (const t of by.values()) {
+        const c = (lead.contacts || []).find(x => x.phone && phoneKey(x.phone) === phoneKey(t.phone));
+        if (c) t.name = `${c.name}${c.role ? ` · ${c.role}` : ''}`;
+        else if (t.phone && phoneKey(t.phone) === phoneKey(lead.phone1)) t.name = lead.contact_name || lead.name;
+        t.name = t.name || (t.phone ? formatPhone(t.phone).display : 'שיחה');
+      }
+      return [...by.values()].sort((a, b) =>
+        new Date(b.messages.at(-1)?.created_at || 0) - new Date(a.messages.at(-1)?.created_at || 0));
+    };
+
     const paint = (messages, wa) => {
       bodyEl.innerHTML = '';
+      const threads = threadsOf(messages);
+      const active = threads.find(t => t.key === waChat) || threads[0] || null;
+      waChat = active?.key || null;
+
+      if (threads.length > 1) {
+        bodyEl.append(h('div', { class: 'wa-threads' }, ...threads.map(t => h('button', {
+          class: `wa-thread${t === active ? ' active' : ''}`,
+          onclick: () => { waChat = t.key; paint(messages, wa); },
+        }, h('b', {}, t.name),
+        h('span', { class: 'muted' }, (t.messages.at(-1)?.body || '').slice(0, 28) || '—')))));
+      }
+
       const chat = h('div', { class: 'wa-chat' });
-      if (!messages.length) {
+      const shown = active ? active.messages : [];
+      if (!shown.length) {
         chat.append(h('p', { class: 'muted', style: 'text-align:center;margin-top:20px' }, 'אין הודעות וואטסאפ לליד הזה עדיין.'));
       }
-      for (const m of messages) {
+      for (const m of shown) {
         chat.append(h('div', { class: `wa-msg ${m.direction === 'out' ? 'out' : 'in'}` },
           h('div', { class: 'wa-body' }, m.body || ''),
           h('div', { class: 'wa-time' }, dfmt(m.created_at))));
@@ -1750,7 +1800,9 @@ async function openUpdatesDrawer(lead, initialTab = 'updates') {
         onclick: withBusy(async () => {
           if (!ta.value.trim()) return;
           try {
-            await post(`/leads/${lead.id}/messages`, { body: ta.value.trim() });
+            // the reply goes back to the thread being read, not to the lead's
+            // own number — otherwise answering the groom messages the bride
+            await post(`/leads/${lead.id}/messages`, { body: ta.value.trim(), to: waChat || '' });
             ta.value = '';
             const fresh = await get(`/leads/${lead.id}/messages`);
             paint(fresh.messages, fresh.wa);
@@ -2057,7 +2109,14 @@ function openDuplicateReview(showApproved = false) {
           m?.close?.();
           openMergeResolve(l, other, () => openDuplicateReview(showApproved));
         },
-      }, g.leads.length === 2 ? '✅ שמור את זה ומזג' : '✅ שמור את זה')));
+      }, g.leads.length === 2 ? '✅ שמור את זה ומזג' : '✅ שמור את זה'),
+      // The other record is often not a duplicate at all but the second person
+      // on the same wedding — same number, different human. Merging would lose
+      // them; this keeps them as a contact of this lead.
+      approved ? null : h('button', {
+        class: 'btn sm ghost', title: 'הליד הזה נשאר, והאחר הופך לאיש קשר שלו',
+        onclick: () => { m?.close?.(); openAttachContact(l, () => openDuplicateReview(showApproved)); },
+      }, '👥 צרף כאיש קשר')));
 
     return h('div', { class: 'card dup-group' },
       h('div', { class: 'dup-head' },
@@ -2109,21 +2168,99 @@ function openDuplicateReview(showApproved = false) {
   });
 }
 
+// A <select> over five thousand leads is not a control, it is a haystack. This
+// is a type-to-filter list that searches everything you might remember about a
+// record — the couple, the contact, either phone, the venue — and shows the
+// first handful, because a list you have to scroll is the same haystack again.
+function leadSearchPicker(label, { exclude = null, onPick, placeholder = 'חיפוש לפי שם, טלפון, אולם…' } = {}) {
+  const input = h('input', { type: 'search', placeholder, autocomplete: 'off' });
+  const list = h('div', { class: 'lead-pick-list' });
+  const chosen = h('div', { class: 'lead-pick-chosen' });
+  let picked = null;
+
+  const hay = (l) => [l.name, l.contact_name, l.groom_name, l.bride_name,
+    l.phone1, l.phone2, l.event_location, l.email].filter(Boolean).join(' ').toLowerCase();
+
+  const line = (l) => [l.contact_name, l.phone1 && formatPhone(l.phone1).display,
+    l.event_date, l.event_location].filter(Boolean).join(' · ') || '—';
+
+  const render = () => {
+    const q = input.value.trim().toLowerCase();
+    list.innerHTML = '';
+    if (!q) { list.append(h('p', { class: 'muted sm' }, 'הקלידו כדי לחפש')); return; }
+    const hits = ctx.leads.filter(l => l.id !== exclude?.id && hay(l).includes(q));
+    if (!hits.length) { list.append(h('p', { class: 'muted sm' }, 'לא נמצאו לידים')); return; }
+    for (const l of hits.slice(0, 12)) {
+      list.append(h('button', {
+        class: 'lead-pick-row', type: 'button',
+        onclick: () => { picked = l; input.value = ''; render(); paintChosen(); onPick?.(l); },
+      }, h('b', {}, l.name), h('span', { class: 'muted' }, line(l))));
+    }
+    if (hits.length > 12) list.append(h('p', { class: 'muted sm' }, `ועוד ${hits.length - 12} תוצאות — צמצמו את החיפוש`));
+  };
+  const paintChosen = () => {
+    chosen.innerHTML = '';
+    if (!picked) return;
+    chosen.append(h('span', { class: 'chip stage' }, picked.name), h('span', { class: 'muted' }, line(picked)));
+  };
+
+  input.addEventListener('input', debounce(render, 120));
+  render();
+  return {
+    el: h('div', { class: 'lead-pick' },
+      h('label', { class: 'field' }, h('span', {}, label), input), chosen, list),
+    get value() { return picked; },
+    set value(l) { picked = l; paintChosen(); },
+  };
+}
+
 function openMergePicker() {
-  const rows = ctx.leads;
-  const sel1 = h('select', {}, ...rows.map(l => h('option', { value: l.id }, l.name)));
-  const sel2 = h('select', {}, ...rows.map((l, i) => h('option', { value: l.id, selected: i === 1 }, l.name)));
+  const a = leadSearchPicker('ליד ראשי (יישאר)', { onPick: () => { b.el.querySelector('input').focus(); } });
+  const b = leadSearchPicker('כפיל (ימוזג ויימחק)');
   modal('מיזוג לידים כפולים', h('div', {},
     h('p', { class: 'muted' }, 'בחרו את הליד הראשי (שיישאר) ואת הכפיל (שימוזג ויימחק).'),
-    h('label', { class: 'field' }, h('span', {}, 'ליד ראשי'), sel1),
-    h('label', { class: 'field' }, h('span', {}, 'כפיל למיזוג'), sel2)), {
+    a.el, b.el), {
     actions: [
       {
         label: 'המשך למיזוג', kind: 'primary', onclick: (close) => {
-          const a = rows.find(l => l.id === sel1.value), b = rows.find(l => l.id === sel2.value);
-          if (!a || !b || a.id === b.id) { toast('יש לבחור שני לידים שונים', 'error'); return false; }
+          if (!a.value || !b.value || a.value.id === b.value.id) {
+            toast('יש לבחור שני לידים שונים', 'error'); return false;
+          }
           close();
-          openMergeResolve(a, b);
+          openMergeResolve(a.value, b.value);
+        },
+      },
+      { label: 'ביטול', onclick: (close) => close() },
+    ],
+  });
+}
+
+// Absorb another lead into this one as an extra contact. Not a merge: a merge
+// flattens two records into one and loses who is who, and for a wedding the
+// bride, the groom and a parent are three people on one job — you need to know
+// which of them said what, and to be able to write back to each.
+function openAttachContact(lead, onDone) {
+  const pick = leadSearchPicker('הליד לצירוף', { exclude: lead });
+  const role = h('input', { type: 'text', placeholder: 'תפקיד/קרבה (למשל: חתן, אבא של הכלה)' });
+  modal(`👥 צירוף ליד כאיש קשר — ${lead.name}`, h('div', {},
+    h('p', { class: 'muted' },
+      `הליד שתבחרו יהפוך לאיש קשר של "${lead.name}" והרשומה הנפרדת שלו תימחק. `
+      + 'ההתכתבות בוואטסאפ, העדכונים והקבצים שלו עוברים לכאן ונשארים קריאים כשיחה נפרדת.'),
+    pick.el,
+    h('label', { class: 'field' }, h('span', {}, 'תפקיד'), role)), {
+    actions: [
+      {
+        label: '👥 צרף כאיש קשר', kind: 'primary', onclick: async (close) => {
+          if (!pick.value) { toast('יש לבחור ליד לצירוף', 'error'); return; }
+          try {
+            const { contact } = await post(`/leads/${lead.id}/absorb`, {
+              lead_id: pick.value.id, role: role.value,
+            });
+            close();
+            toast(`"${contact.name}" צורף כאיש קשר ✓`, 'success');
+            await reload();
+            onDone?.();
+          } catch (err) { toast(err.message, 'error'); }
         },
       },
       { label: 'ביטול', onclick: (close) => close() },
