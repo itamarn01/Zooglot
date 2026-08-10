@@ -87,61 +87,44 @@ export async function renderSettingsTab(view, state) {
   // ================= integrations =================
   const statusDot = (ok) => h('span', { class: 'badge-dot', style: `background:${ok ? 'var(--ok)' : 'var(--danger)'}` });
 
-  // Which calendar the events land on.
+  // The two calendars the app creates and owns.
   //
-  // A band wants ONE calendar everybody is already subscribed to, not an event
-  // in each member's personal calendar — that is the same wedding written three
-  // times. So the target is a plain address you can point anywhere you have
-  // write access, and `primary` means the connected account's own calendar.
-  //
-  // The dropdown is a convenience, not the mechanism: listing a Google account's
-  // calendars needs a scope beyond the one this app asks for, so when it is not
-  // granted the field simply stays a text box rather than the feature vanishing.
-  function calendarTarget() {
-    const input = h('input', {
-      type: 'text', dir: 'ltr', value: calStatus.calendar_id || 'primary',
-      placeholder: 'primary',
-    });
-    const field = h('div', { class: 'flex', style: 'gap:6px;align-items:stretch' }, input);
+  // One calendar can only be turned on or off as a whole, and held dates and
+  // booked ones are read for different reasons — so each pipeline gets its own,
+  // and the band shares them separately. What the user needs from this screen is
+  // the calendar ID: that is what Google's "share with specific people" wants.
+  function calendarBoards() {
+    const box = h('div', { style: 'margin:8px 0 12px' },
+      h('p', { class: 'muted' }, 'טוען את היומנים…'));
 
-    const save = async (value) => {
-      const calendar_id = (value || '').trim();
-      if (!calendar_id || calendar_id === calStatus.calendar_id) return;
+    const row = (c) => h('div', { class: 'pkg-item', style: 'flex-wrap:wrap;gap:8px' },
+      h('b', {}, c.status === 'win' ? '🟢' : '⚪', ` ${c.summary}`),
+      h('span', { style: 'flex:1' }),
+      c.id
+        ? h('code', { class: 'code-inline', dir: 'ltr', style: 'font-size:12px' }, c.id)
+        : h('span', { class: 'muted' },
+          c.error === 'scope' ? 'נדרש חיבור מחדש (הרשאה מורחבת)' : c.error));
+
+    (async () => {
       try {
-        const r = await patch('/calendar/calendar-id', { calendar_id });
-        calStatus.calendar_id = r.calendar_id;
-        toast(r.moved
-          ? `היומן הוחלף — ${r.moved} אירועים הועברו ✓`
-          : 'היומן הוחלף ✓', 'success');
-      } catch (e) { toast(e.message, 'error'); }
-    };
+        const { calendars } = await get('/calendar/calendars');
+        const needsScope = calendars.some(c => c.error === 'scope');
+        box.replaceChildren(
+          ...calendars.map(row),
+          needsScope
+            ? h('p', { class: 'muted' },
+              '⚠️ החיבור הקיים נוצר עם הרשאה מצומצמת ולכן אי אפשר ליצור יומנים. '
+              + 'לחצו "ניתוק" ואז "חיבור יומן Google" שוב, ואשרו את הבקשה החדשה.')
+            : h('p', { class: 'muted' },
+              'לשיתוף עם שאר הצוות: ב-Google Calendar → שלוש הנקודות ליד שם היומן → '
+              + '"הגדרות ושיתוף" → "שיתוף עם אנשים ספציפיים" → הוסיפו את המיילים שלהם. '
+              + 'כל יומן משותף בנפרד, כך שאפשר לתת רק את הסגורים או רק את הלידים.'));
+      } catch (e) {
+        box.replaceChildren(h('p', { class: 'muted' }, `לא ניתן לטעון את היומנים: ${e.message}`));
+      }
+    })();
 
-    const load = h('button', {
-      class: 'btn sm', onclick: async () => {
-        try {
-          const { calendars } = await get('/calendar/calendars');
-          if (!calendars.length) return toast('לא נמצאו יומנים לכתיבה', 'error');
-          const sel = h('select', { dir: 'ltr' },
-            ...calendars.map(c => h('option', {
-              value: c.id, selected: c.id === (calStatus.calendar_id || 'primary'),
-            }, `${c.summary}${c.primary ? ' (ראשי)' : ''} — ${c.id}`)));
-          sel.addEventListener('change', () => save(sel.value));
-          field.replaceChildren(sel);
-        } catch (e) {
-          toast(`אין הרשאה לרשימת היומנים — הדביקו את כתובת היומן ידנית (${e.message})`, 'error');
-        }
-      },
-    }, '📋 טעינת רשימה');
-
-    input.addEventListener('change', () => save(input.value));
-    return h('div', { style: 'margin:8px 0 12px' },
-      h('label', { class: 'field' },
-        h('span', {}, 'היומן שאליו נכתבים האירועים'),
-        h('div', { class: 'flex', style: 'gap:6px' }, field, load)),
-      h('p', { class: 'muted', style: 'margin-top:-6px' },
-        'primary = היומן של החשבון המחובר. ליומן משותף — הדביקו את כתובתו '
-        + '(למשל kolotmusic@gmail.com), ובלבד שלחשבון המחובר יש בו הרשאת עריכה. '
-        + 'החלפה מעבירה את האירועים הקיימים ליומן החדש.'));
+    return box;
   }
 
   // WhatsApp linking: the band phone holder scans the QR (WhatsApp → Linked
@@ -303,9 +286,10 @@ export async function renderSettingsTab(view, state) {
     h('hr', { style: 'border-color:var(--line)' }),
     h('h4', {}, '📅 Google Calendar'),
     h('p', { class: 'muted' },
-      'אירועים נכתבים ליומן שנבחר: אפור = צינור ראשי (תאריך מוחזק), ירוק = WON. '
-      + 'ליד שעובר ל-LOST או שהתאריך שלו נמחק — האירוע יורד מהיומן.'),
-    calStatus.connected ? calendarTarget() : null,
+      'המערכת יוצרת ומנהלת שני יומנים נפרדים: אחד ללידים בצינור הראשי (אפור) ואחד '
+      + 'לסגורים (ירוק). ליד שעובר ל-WON עובר בין היומנים; ליד שעובר ל-LOST או '
+      + 'שהתאריך שלו נמחק — האירוע יורד לגמרי.'),
+    calStatus.connected ? calendarBoards() : null,
     calStatus.connected
       ? h('div', {},
         h('p', {}, statusDot(true), ` מחובר: ${calStatus.google_email || ''}`),
