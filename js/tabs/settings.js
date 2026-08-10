@@ -87,6 +87,63 @@ export async function renderSettingsTab(view, state) {
   // ================= integrations =================
   const statusDot = (ok) => h('span', { class: 'badge-dot', style: `background:${ok ? 'var(--ok)' : 'var(--danger)'}` });
 
+  // Which calendar the events land on.
+  //
+  // A band wants ONE calendar everybody is already subscribed to, not an event
+  // in each member's personal calendar — that is the same wedding written three
+  // times. So the target is a plain address you can point anywhere you have
+  // write access, and `primary` means the connected account's own calendar.
+  //
+  // The dropdown is a convenience, not the mechanism: listing a Google account's
+  // calendars needs a scope beyond the one this app asks for, so when it is not
+  // granted the field simply stays a text box rather than the feature vanishing.
+  function calendarTarget() {
+    const input = h('input', {
+      type: 'text', dir: 'ltr', value: calStatus.calendar_id || 'primary',
+      placeholder: 'primary',
+    });
+    const field = h('div', { class: 'flex', style: 'gap:6px;align-items:stretch' }, input);
+
+    const save = async (value) => {
+      const calendar_id = (value || '').trim();
+      if (!calendar_id || calendar_id === calStatus.calendar_id) return;
+      try {
+        const r = await patch('/calendar/calendar-id', { calendar_id });
+        calStatus.calendar_id = r.calendar_id;
+        toast(r.moved
+          ? `היומן הוחלף — ${r.moved} אירועים הועברו ✓`
+          : 'היומן הוחלף ✓', 'success');
+      } catch (e) { toast(e.message, 'error'); }
+    };
+
+    const load = h('button', {
+      class: 'btn sm', onclick: async () => {
+        try {
+          const { calendars } = await get('/calendar/calendars');
+          if (!calendars.length) return toast('לא נמצאו יומנים לכתיבה', 'error');
+          const sel = h('select', { dir: 'ltr' },
+            ...calendars.map(c => h('option', {
+              value: c.id, selected: c.id === (calStatus.calendar_id || 'primary'),
+            }, `${c.summary}${c.primary ? ' (ראשי)' : ''} — ${c.id}`)));
+          sel.addEventListener('change', () => save(sel.value));
+          field.replaceChildren(sel);
+        } catch (e) {
+          toast(`אין הרשאה לרשימת היומנים — הדביקו את כתובת היומן ידנית (${e.message})`, 'error');
+        }
+      },
+    }, '📋 טעינת רשימה');
+
+    input.addEventListener('change', () => save(input.value));
+    return h('div', { style: 'margin:8px 0 12px' },
+      h('label', { class: 'field' },
+        h('span', {}, 'היומן שאליו נכתבים האירועים'),
+        h('div', { class: 'flex', style: 'gap:6px' }, field, load)),
+      h('p', { class: 'muted', style: 'margin-top:-6px' },
+        'primary = היומן של החשבון המחובר. ליומן משותף — הדביקו את כתובתו '
+        + '(למשל kolotmusic@gmail.com), ובלבד שלחשבון המחובר יש בו הרשאת עריכה. '
+        + 'החלפה מעבירה את האירועים הקיימים ליומן החדש.'));
+  }
+
   // WhatsApp linking: the band phone holder scans the QR (WhatsApp → Linked
   // devices) to connect. Self-updating card that polls the server while pairing.
   function whatsappCard() {
@@ -245,6 +302,10 @@ export async function renderSettingsTab(view, state) {
     instagramCard(),
     h('hr', { style: 'border-color:var(--line)' }),
     h('h4', {}, '📅 Google Calendar'),
+    h('p', { class: 'muted' },
+      'אירועים נכתבים ליומן שנבחר: אפור = צינור ראשי (תאריך מוחזק), ירוק = WON. '
+      + 'ליד שעובר ל-LOST או שהתאריך שלו נמחק — האירוע יורד מהיומן.'),
+    calStatus.connected ? calendarTarget() : null,
     calStatus.connected
       ? h('div', {},
         h('p', {}, statusDot(true), ` מחובר: ${calStatus.google_email || ''}`),
@@ -263,14 +324,25 @@ export async function renderSettingsTab(view, state) {
               toast('היומן נותק', 'success');
             },
           }, 'ניתוק')))
-      : h('button', {
-        class: 'btn primary', onclick: async () => {
-          try {
-            const { url } = await get('/calendar/connect');
-            location.href = url;
-          } catch (e) { toast(e.message, 'error'); }
-        },
-      }, '🔗 חיבור יומן Google'),
+      : h('div', {},
+        h('button', {
+          class: 'btn primary', onclick: async () => {
+            try {
+              const { url } = await get('/calendar/connect');
+              location.href = url;
+            } catch (e) { toast(e.message, 'error'); }
+          },
+        }, '🔗 חיבור יומן Google'),
+        // The one thing Google's "redirect_uri_mismatch" never tells you is
+        // what it received. This is the exact string we send — paste it into
+        // the Console's "Authorized redirect URIs" and the error is over.
+        calStatus.redirect_uri
+          ? h('div', { style: 'margin-top:10px' },
+            h('p', { class: 'muted' },
+              'אם מתקבלת שגיאת redirect_uri_mismatch — זו הכתובת שהשרת שולח, '
+              + 'והיא חייבת להופיע תו-בתו תחת Authorized redirect URIs ב-Google Cloud Console:'),
+            h('div', { class: 'code-box' }, calStatus.redirect_uri))
+          : null),
     h('hr', { style: 'border-color:var(--line)' }),
     h('h4', {}, '🌐 Webhook לאתר (מחליף את Monday)'),
     h('p', { class: 'muted' }, 'כוונו את טפסי האתר (כולל טפסי ה-wkf הקיימים) לכתובת הזו בשיטת POST (JSON):'),

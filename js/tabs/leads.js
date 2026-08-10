@@ -2256,6 +2256,10 @@ function leadSearchPicker(label, { exclude = null, onPick, placeholder = 'חיפ
 // merge or an absorb behind it, so the confirmation names what is being lost —
 // the count of updates and contacts is usually what tells you whether this is
 // the empty copy or the one the team has been working.
+//
+// It also says out loud how many records on that number SURVIVE. The button
+// sits inside a group of records sharing a phone, which reads as though it
+// might take the group with it; it deletes exactly one row.
 async function deleteLeadFromReview(lead, onDone) {
   const bits = [
     lead.phone1 && formatPhone(lead.phone1).display,
@@ -2263,8 +2267,16 @@ async function deleteLeadFromReview(lead, onDone) {
     (lead.contacts || []).length ? `${lead.contacts.length} אנשי קשר` : '',
     lead.updates_count ? `${lead.updates_count} עדכונים` : '',
   ].filter(Boolean).join(' · ');
+  const key = phoneKey(lead.phone1) || phoneKey(lead.phone2);
+  const others = key
+    ? ctx.leads.filter(l => l.id !== lead.id
+      && (phoneKey(l.phone1) === key || phoneKey(l.phone2) === key))
+    : [];
+  const survive = others.length
+    ? `\n\nרק הרשומה הזו נמחקת. ${others.length === 1 ? 'הרשומה האחרת' : `${others.length} הרשומות האחרות`} עם אותו מספר ${others.length === 1 ? 'תישאר' : 'יישארו'}: ${others.map(l => `"${l.name}"`).join(', ')}`
+    : '';
   const ok = await confirmModal(`מחיקת "${lead.name}"`,
-    `הרשומה תימחק לצמיתות, יחד עם העדכונים, אנשי הקשר וההתכתבות שלה.${bits ? `\n\n${bits}` : ''}`);
+    `הרשומה תימחק לצמיתות, יחד עם העדכונים, אנשי הקשר וההתכתבות שלה.${bits ? `\n\n${bits}` : ''}${survive}`);
   if (!ok) return;
   try {
     await del(`/leads/${lead.id}`);

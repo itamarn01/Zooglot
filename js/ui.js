@@ -238,7 +238,9 @@ const EYE_CLOSED = ICONS.eyeClosed;
 
 export function confirmModal(title, text) {
   return new Promise((resolve) => {
-    const m = modal(title, h('p', {}, text), {
+    // pre-wrap: a confirmation that lists what is about to be lost needs its
+    // line breaks, and a wall of one paragraph is what gets clicked through
+    const m = modal(title, h('p', { style: 'white-space:pre-wrap' }, text), {
       actions: [
         { label: 'אישור', kind: 'primary', onclick: (close) => { close(); resolve(true); } },
         { label: 'ביטול', onclick: (close) => { close(); resolve(false); } },
