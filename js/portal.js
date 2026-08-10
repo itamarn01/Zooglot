@@ -81,7 +81,15 @@ function toDateInputValue(v) {
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
   const d = new Date(s);
-  return isNaN(d) ? '' : d.toISOString().slice(0, 10);
+  if (isNaN(d)) return '';
+  // Read the calendar fields; never round-trip a day through UTC. A string the
+  // browser parses in local time becomes the previous evening in UTC east of
+  // Greenwich, and the field would show the day before the wedding.
+  const pad = n => String(n).padStart(2, '0');
+  const utcMidnight = !d.getUTCHours() && !d.getUTCMinutes() && !d.getUTCSeconds() && !d.getUTCMilliseconds();
+  return utcMidnight
+    ? `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
+    : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 async function api(path, opts = {}) {
