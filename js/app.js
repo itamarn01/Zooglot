@@ -101,6 +101,22 @@ async function enterApp(user) {
   takeSharedAudio();
 }
 
+// Coming back from Google is a fresh page load, not a hash change — the toast
+// wired to `hashchange` never fired, so a connection that worked (or failed)
+// said nothing at all.
+function reportCalendarReturn() {
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const flag = hash.get('calendar');
+  if (!flag) return;
+  hash.delete('calendar');
+  const msg = hash.get('msg');
+  hash.delete('msg');
+  // clear the markers, so a refresh does not repeat the message
+  history.replaceState(null, '', location.pathname + (hash.toString() ? '#' + hash : ''));
+  if (flag === 'connected') toast('יומן Google חובר בהצלחה ✓', 'success');
+  else if (flag === 'error') toast(`שגיאה בחיבור היומן: ${msg || ''}`, 'error');
+}
+
 async function boot() {
   const hash = new URLSearchParams(location.hash.slice(1));
   if (!getToken() || hash.get('invite') || hash.get('reset')) {
@@ -114,6 +130,7 @@ async function boot() {
     await loadTeam();
     startLive();
     renderApp();
+    reportCalendarReturn();
     takeSharedAudio();
   } catch {
     setToken(null);
@@ -183,8 +200,7 @@ function registerServiceWorker() {
 
 window.addEventListener('hashchange', () => {
   const hash = new URLSearchParams(location.hash.slice(1));
-  if (hash.get('calendar') === 'connected') toast('יומן Google חובר בהצלחה ✓', 'success');
-  if (hash.get('calendar') === 'error') toast(`שגיאה בחיבור היומן: ${hash.get('msg') || ''}`, 'error');
+  reportCalendarReturn();   // same message, same clearing, one implementation
   if (state.user) renderApp();
   // an already-running standalone window gets the share as a hash change
   if (state.user && (hash.get('shared-voice') || hash.get('voice-note'))) takeSharedAudio();
