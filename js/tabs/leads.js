@@ -2147,7 +2147,14 @@ function openDuplicateReview(showApproved = false) {
       approved ? null : h('button', {
         class: 'btn sm ghost', title: 'הליד הזה נשאר, והאחר הופך לאיש קשר שלו',
         onclick: () => { m?.close?.(); openAttachContact(l, () => openDuplicateReview(showApproved)); },
-      }, '👥 צרף כאיש קשר')));
+      }, '👥 צרף כאיש קשר'),
+      // Sometimes the second record is simply the same thing typed twice, with
+      // nothing on it worth keeping. Merging it would work but leaves you
+      // reading a conflict form for two identical records.
+      approved ? null : h('button', {
+        class: 'btn sm danger', title: 'מחיקת הרשומה הזו לצמיתות',
+        onclick: () => deleteLeadFromReview(l, () => { m?.close?.(); openDuplicateReview(showApproved); }),
+      }, '🗑️ מחק רשומה זו')));
 
     return h('div', { class: 'card dup-group' },
       h('div', { class: 'dup-head' },
@@ -2243,6 +2250,29 @@ function leadSearchPicker(label, { exclude = null, onPick, placeholder = 'חיפ
     get value() { return picked; },
     set value(l) { picked = l; paintChosen(); },
   };
+}
+
+// Deleting from the duplicates review is the one place a record goes without a
+// merge or an absorb behind it, so the confirmation names what is being lost —
+// the count of updates and contacts is usually what tells you whether this is
+// the empty copy or the one the team has been working.
+async function deleteLeadFromReview(lead, onDone) {
+  const bits = [
+    lead.phone1 && formatPhone(lead.phone1).display,
+    lead.event_date, lead.event_location,
+    (lead.contacts || []).length ? `${lead.contacts.length} אנשי קשר` : '',
+    lead.updates_count ? `${lead.updates_count} עדכונים` : '',
+  ].filter(Boolean).join(' · ');
+  const ok = await confirmModal(`מחיקת "${lead.name}"`,
+    `הרשומה תימחק לצמיתות, יחד עם העדכונים, אנשי הקשר וההתכתבות שלה.${bits ? `\n\n${bits}` : ''}`);
+  if (!ok) return;
+  try {
+    await del(`/leads/${lead.id}`);
+    ctx.selected.delete(lead.id);
+    toast(`"${lead.name}" נמחק`, 'success');
+    await reload();
+    onDone?.();
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 function openMergePicker() {
