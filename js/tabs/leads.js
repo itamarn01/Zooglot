@@ -68,7 +68,17 @@ const isCollapsed = (key) => collapsedCols.has(key);
 // for חוזים and coming back lands where they were, instead of resetting to the
 // main pipeline every time.
 let boardView = {
-  pipeline: 'open', search: '', sort: { col: 'event_date', asc: true }, filters: {},
+  pipeline: 'open', search: '', sorts: {}, filters: {},
+};
+
+// Each pipeline is read to answer a different question, so each opens in its
+// own order — and remembers its own once you change it. One shared sort meant
+// that ordering WON by date left the main pipeline ordered by date too.
+const DEFAULT_SORT = {
+  open: { col: 'first_contact_date', asc: true },  // who wrote in: newest at the bottom
+  win: { col: 'event_date', asc: false },          // what is booked: furthest-out on top
+  lost: { col: 'last_updated_log', asc: false },   // what was touched last, on top
+  all: { col: 'event_date', asc: true },
 };
 const CACHE_KEY = 'leads';
 
@@ -81,6 +91,17 @@ export async function renderLeadsTab(view, state) {
     selected: new Set(),
     dismissals: [],   // phone numbers confirmed as "not a duplicate"
   };
+  // `ctx.sort` stays the one name every control reads and writes, but it is
+  // stored per pipeline: switching pipelines swaps the order with it.
+  Object.defineProperty(ctx, 'sort', {
+    enumerable: true, configurable: true,
+    get() {
+      const p = ctx.pipeline;
+      if (!ctx.sorts[p]) ctx.sorts[p] = { ...(DEFAULT_SORT[p] || DEFAULT_SORT.all) };
+      return ctx.sorts[p];
+    },
+    set(v) { ctx.sorts[ctx.pipeline] = v; },
+  });
 
   // Skeletons only when there is genuinely nothing to show. Re-entering the tab
   // used to re-download the whole board and stare at placeholders for data the
@@ -135,7 +156,8 @@ function resetPaging() {
 function rememberView() {
   boardView = {
     pipeline: ctx.pipeline, search: ctx.search,
-    sort: { ...ctx.sort }, filters: { ...ctx.filters },
+    sorts: Object.fromEntries(Object.entries(ctx.sorts).map(([k, v]) => [k, { ...v }])),
+    filters: { ...ctx.filters },
   };
 }
 
@@ -295,6 +317,40 @@ function haystack(l) {
   return text;
 }
 
+// When a lead was last really worked on, as a sortable timestamp.
+//
+// "Last Updated" is Monday's text column — "itamar Jul 18, 2023 9:52 AM".
+// Sorted as text it orders by the person's NAME. And updated_at alone cannot
+// stand in for it: an import stamps every row with the same moment, so it
+// would sort 5,000 LOST leads by nothing at all.
+//
+// So: the date inside Monday's log, unless the lead has been edited here since
+// it was created — the one case updated_at means something — and the later of
+// the two wins.
+const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+const LOG_STAMP = new WeakMap();
+
+function parseLogDate(text) {
+  // parsed by hand: Safari refuses "Jul 18, 2023 9:52 AM" in Date()
+  const m = /([A-Za-z]{3})[a-z]*\.? (\d{1,2}),? (\d{4})(?:,? (\d{1,2}):(\d{2}) ?([AP]M)?)?/i.exec(String(text || ''));
+  if (!m || !(m[1].toLowerCase() in MONTHS)) return 0;
+  let hour = Number(m[4] || 0);
+  if (m[6]) hour = (hour % 12) + (m[6].toUpperCase() === 'PM' ? 12 : 0);
+  return new Date(Number(m[3]), MONTHS[m[1].toLowerCase()], Number(m[2]), hour, Number(m[5] || 0)).getTime();
+}
+
+function lastUpdatedOf(l) {
+  const hit = LOG_STAMP.get(l);
+  if (hit && hit.stamp === l.updated_at) return hit.value;
+  const created = Date.parse(l.created_at) || 0;
+  const updated = Date.parse(l.updated_at) || 0;
+  const editedHere = updated - created > 60 * 1000;
+  const value = Math.max(parseLogDate(l.last_updated_log), editedHere ? updated : 0)
+    || updated || created || null;
+  LOG_STAMP.set(l, { stamp: l.updated_at, value });
+  return value;
+}
+
 function visibleLeads() {
   let rows = ctx.leads;
   if (ctx.pipeline !== 'all') rows = rows.filter(l => l.sale_status === ctx.pipeline);
@@ -306,8 +362,9 @@ function visibleLeads() {
   }
   const { col, asc } = ctx.sort;
   if (col) {
+    const valueOf = col === 'last_updated_log' ? lastUpdatedOf : (l) => l[col];
     rows = [...rows].sort((a, b) => {
-      const x = a[col], y = b[col];
+      const x = valueOf(a), y = valueOf(b);
       if (x == null || x === '') return 1;
       if (y == null || y === '') return -1;
       const nx = Number(x), ny = Number(y);

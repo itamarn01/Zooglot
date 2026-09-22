@@ -58,7 +58,13 @@ export async function openImportWizard(onDone, pipeline = 'open') {
     });
   }
 
-  function setFooter(...btns) { footer.innerHTML = ''; footer.append(...btns); }
+  // The DOM's own append() turns a null argument into the TEXT "null" — unlike
+  // h(), which skips it. Every step builds its body with optional parts
+  // (`cond ? x : null`), so "null" and "nullnull" were being printed into the
+  // wizard. Everything goes through here instead.
+  const present = (nodes) => nodes.filter(n => n != null && n !== false);
+  const mount = (...nodes) => body.append(...present(nodes));
+  function setFooter(...btns) { footer.innerHTML = ''; footer.append(...present(btns)); }
   const btn = (label, opts = {}) => h('button', { class: `btn ${opts.kind || ''}`, onclick: opts.onclick, disabled: opts.disabled }, label);
 
   // ---- step: choose mode ----
@@ -68,7 +74,7 @@ export async function openImportWizard(onDone, pipeline = 'open') {
       class: `card wiz-choice${state.mode === mode ? ' sel' : ''}`,
       onclick: () => { state.mode = mode; drawSteps(); renderMode(); },
     }, h('div', { style: 'font-size:30px' }, emoji), h('h4', { style: 'margin:6px 0' }, title), h('p', { class: 'muted' }, desc));
-    body.append(
+    mount(
       h('p', { class: 'muted' }, 'מה תרצו לייבא? העלו קובץ Excel (‎.xlsx/.xls) או CSV.'),
       h('p', { class: 'muted' }, `🎯 לידים ייובאו כברירת מחדל אל: `,
         h('b', { style: 'color:var(--text)' }, STATUS_LABELS[state.saleStatus]),
@@ -90,7 +96,7 @@ export async function openImportWizard(onDone, pipeline = 'open') {
       h('p', { class: 'muted', style: 'margin-top:8px' }, 'נתמכים: ‎.xlsx, .xls, .csv'),
       fileInput);
     const status = h('p', { class: 'muted' });
-    body.append(drop, status);
+    mount(drop, status);
 
     const doParse = async (file) => {
       status.textContent = `מנתח את "${file.name}"…`;
@@ -142,7 +148,7 @@ export async function openImportWizard(onDone, pipeline = 'open') {
       h('td', {}, String(r[col] ?? '').slice(0, 40)))));
 
     const mappedCount = usedKeys().size;
-    body.append(
+    mount(
       h('h4', {}, 'מיפוי טורים — כך יראו הנתונים בייבוא'),
       h('p', { class: 'muted' }, `התאימו כל טור בקובץ לשדה במערכת (או "אל תייבא"). מוצגות ${preview.length} שורות ראשונות מתוך ${state.rows.length}.`),
       h('div', { class: 'wiz-table-wrap' }, h('table', { class: 'wiz-table' }, h('thead', {}, headRow), h('tbody', {}, ...bodyRows))),
@@ -176,15 +182,15 @@ export async function openImportWizard(onDone, pipeline = 'open') {
     statusSel.addEventListener('change', () => { state.saleStatus = statusSel.value; });
     const mapsStatus = Object.values(state.mapping).includes('sale_status');
 
-    body.append(
+    mount(
       h('h4', {}, 'יעד הייבוא'),
       h('label', { class: 'field' }, h('span', {}, 'הלידים ייובאו אל'), statusSel),
       h('p', { class: 'muted', style: 'margin-top:4px' },
         mapsStatus
           ? 'ℹ️ מיפית טור ל"סטאטוס מכירה" — הערך מהקובץ יגבר על הבחירה הזו בכל שורה שיש בה ערך.'
-          : (state.saleStatus === 'lost'
-            ? '⚠️ ייבוא ל-LOST: שורות ללא "למה לא?" ו"מתחרה שזכה" יקבלו ערך ברירת מחדל, כי המערכת מחייבת אותם.'
-            : 'נקבע לפי הצינור שממנו נכנסתם לייבוא.')),
+          // (LOST reason/competitor used to be mandatory and this warned about
+          // defaults being filled in; they are optional now, so it would lie)
+          : 'נקבע לפי הצינור שממנו נכנסתם לייבוא.'),
       h('h4', { style: 'margin-top:18px' }, 'טיפול בהתאמות'),
       h('p', { class: 'muted' }, 'כשנמצאת שורה קיימת עם אותו ערך — מה לעשות?'),
       opt('add', 'הוספת כל השורות כחדשות', 'ייווצרו לידים חדשים לכל השורות, גם אם קיים ליד תואם.'),
@@ -231,7 +237,7 @@ export async function openImportWizard(onDone, pipeline = 'open') {
     matchFieldSel.addEventListener('change', () => { state.umap.matchField = matchFieldSel.value; });
 
     const preview = state.rows.slice(0, 5);
-    body.append(
+    mount(
       h('h4', {}, 'מיפוי עמודות העדכונים'),
       h('p', { class: 'muted' }, 'נתאים כל עדכון לליד הקיים לפי עמודת הזיהוי. עדכונים שלא יימצא להם ליד תואם — יידלגו.'),
       h('div', { class: 'grid-2' },
@@ -332,7 +338,7 @@ export async function openImportWizard(onDone, pipeline = 'open') {
       : null;
 
     if (state.mode === 'leads') {
-      body.append(
+      mount(
         h('h4', {}, r.failed ? '⚠️ הייבוא הסתיים עם שגיאות' : '✅ הייבוא הושלם'),
         h('div', { class: 'grid-4' },
           stat(r.created, 'נוצרו', 'var(--win)'),
@@ -341,7 +347,7 @@ export async function openImportWizard(onDone, pipeline = 'open') {
           stat(r.failed, 'נכשלו', r.failed ? 'var(--danger)' : null)),
         errorsCard(r.errors));
     } else {
-      body.append(
+      mount(
         h('h4', {}, r.failed ? '⚠️ ייבוא העדכונים הסתיים עם שגיאות' : '✅ ייבוא העדכונים הושלם'),
         h('div', { class: 'grid-3' },
           stat(r.imported, 'עדכונים יובאו', 'var(--win)'),
