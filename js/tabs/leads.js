@@ -2157,9 +2157,16 @@ function duplicateBanner() {
     h('button', { class: 'btn sm primary', onclick: () => openDuplicateReview() }, 'סקירה, מיזוג ואישור'));
 }
 
-function openDuplicateReview(showApproved = false) {
+// `keep`: numbers whose group stays on screen even once it is no longer a
+// duplicate. Deleting one of two records leaves a single record, which drops
+// out of the duplicate list — but the whole point of deleting from here is to
+// then look at what is left on that number and decide about it too.
+function openDuplicateReview(showApproved = false, keep = []) {
   const body = h('div', {});
   let m = null;
+  const sticky = new Set(keep);
+  let order = null;   // first-seen order of groups, so the list doesn't reshuffle under you
+  const reopen = () => openDuplicateReview(showApproved, [...sticky]);
 
   // "not a duplicate": a producer books many weddings on one number. Approving
   // hides the number for the whole team; it stays listed under "approved" so it
@@ -2184,6 +2191,7 @@ function openDuplicateReview(showApproved = false) {
 
   const groupCard = (g, approved) => {
     const { display } = formatPhone(g.leads[0].phone1 || g.leads[0].phone2 || g.key);
+    const single = g.leads.length < 2;
     const rows = g.leads.map(l => h('div', { class: 'dup-lead' },
       h('div', {},
         h('b', {}, l.name),
@@ -2191,26 +2199,27 @@ function openDuplicateReview(showApproved = false) {
         h('div', { class: 'muted', style: 'font-size:12px' },
           [l.contact_name, l.event_date, l.event_location].filter(Boolean).join(' · ') || '—')),
       h('span', { style: 'flex:1' }),
-      approved ? null : h('button', {
+      approved || single ? null : h('button', {
         class: 'btn sm', onclick: () => {
           const other = g.leads.find(x => x.id !== l.id);
           m?.close?.();
-          openMergeResolve(l, other, () => openDuplicateReview(showApproved));
+          openMergeResolve(l, other, reopen);
         },
       }, g.leads.length === 2 ? '✅ שמור את זה ומזג' : '✅ שמור את זה'),
       // The other record is often not a duplicate at all but the second person
       // on the same wedding — same number, different human. Merging would lose
       // them; this keeps them as a contact of this lead.
-      approved ? null : h('button', {
+      approved || single ? null : h('button', {
         class: 'btn sm ghost', title: 'הליד הזה נשאר, והאחר הופך לאיש קשר שלו',
-        onclick: () => { m?.close?.(); openAttachContact(l, () => openDuplicateReview(showApproved)); },
+        onclick: () => { m?.close?.(); openAttachContact(l, reopen); },
       }, '👥 צרף כאיש קשר'),
       // Sometimes the second record is simply the same thing typed twice, with
       // nothing on it worth keeping. Merging it would work but leaves you
       // reading a conflict form for two identical records.
       approved ? null : h('button', {
         class: 'btn sm danger', title: 'מחיקת הרשומה הזו לצמיתות',
-        onclick: () => deleteLeadFromReview(l, () => { m?.close?.(); openDuplicateReview(showApproved); }),
+        // redraw in place: the rest of this number's records stay in front of you
+        onclick: () => deleteLeadFromReview(l, () => { sticky.add(g.key); drawList(); }),
       }, '🗑️ מחק רשומה זו')));
 
     return h('div', { class: 'card dup-group' },
@@ -2220,22 +2229,39 @@ function openDuplicateReview(showApproved = false) {
         h('span', { style: 'flex:1' }),
         approved
           ? h('button', { class: 'btn sm', onclick: () => undo(g) }, '↩︎ החזרה לבדיקה')
+          : single
+            ? h('span', { class: 'muted sm' }, '✓ נשארה רשומה אחת — כבר לא כפילות')
           : h('button', { class: 'btn sm ghost', title: 'אירועים שונים של אותו איש קשר — לא למזג', onclick: () => approve(g) },
             '👤 לא כפילות — אשר')),
       ...rows);
   };
 
   const drawList = () => {
+    // a redraw after a delete must not throw you back to the top of the list
+    const scroller = m?.box;
+    const top = scroller?.scrollTop || 0;
+    requestAnimationFrame(() => { if (scroller) scroller.scrollTop = top; });
     body.innerHTML = '';
     const pending = phoneDuplicateGroups(false);
     const approvedGroups = phoneDuplicateGroups(true);
+    // numbers resolved during this review keep their card with whatever is left
+    const listed = new Set([...pending, ...approvedGroups].map(g => g.key));
+    for (const key of sticky) {
+      if (listed.has(key)) continue;
+      const leads = ctx.leads.filter(l => phoneKey(l.phone1) === key || phoneKey(l.phone2) === key);
+      if (leads.length) pending.push({ key, leads, approval: null });
+    }
+    if (!order) order = pending.map(g => g.key);
+    const pos = (g) => { const i = order.indexOf(g.key); return i < 0 ? Infinity : i; };
+    pending.sort((a, b) => pos(a) - pos(b));
+    const open = pending.filter(g => g.leads.length > 1).length;
 
     // tabs: what still needs a decision vs what was already approved
     body.append(h('div', { class: 'dup-tabs' },
       h('button', {
         class: showApproved ? '' : 'active',
         onclick: () => { showApproved = false; drawList(); },
-      }, `לבדיקה (${pending.length})`),
+      }, `לבדיקה (${open})`),
       h('button', {
         class: showApproved ? 'active' : '',
         onclick: () => { showApproved = true; drawList(); },
